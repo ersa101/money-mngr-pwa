@@ -1,5 +1,6 @@
 // LLM Service with Gemini -> OpenAI -> Claude fallback chain
 // For intelligent SMS parsing and transaction categorization
+// API keys are loaded from environment variables (NEXT_PUBLIC_ prefix for client-side access)
 
 export interface LLMApiKeys {
   gemini: string
@@ -23,17 +24,13 @@ export interface LLMResponse {
   error: string | null
 }
 
-// Get API keys from localStorage
+// Get API keys from environment variables (NEXT_PUBLIC_ prefix for client-side)
 function getApiKeys(): LLMApiKeys {
-  try {
-    const saved = localStorage.getItem('llm_api_keys')
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch {
-    // Ignore parse errors
+  return {
+    gemini: process.env.NEXT_PUBLIC_GEMINI_API_KEY || '',
+    openai: process.env.NEXT_PUBLIC_OPENAI_API_KEY || '',
+    claude: process.env.NEXT_PUBLIC_CLAUDE_API_KEY || '',
   }
-  return { gemini: '', openai: '', claude: '' }
 }
 
 // Check if any API key is configured
@@ -283,7 +280,7 @@ async function getLLMSuggestion(
       success: false,
       provider: null,
       suggestion: null,
-      error: 'No API keys configured. Please add your API keys in Settings > API Keys.'
+      error: 'No LLM API keys configured. AI-powered SMS parsing is disabled.'
     }
   }
 
@@ -296,7 +293,7 @@ async function getLLMSuggestion(
 }
 
 export const llmService = {
-    getSuggestion: getLLMSuggestion,
-    hasApiKeys,
-    getApiKeys,
+  getSuggestion: getLLMSuggestion,
+  hasApiKeys,
+  getApiKeys,
 };

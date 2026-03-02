@@ -1,8 +1,9 @@
 'use client'
 
 import React, { useState, useRef } from 'react'
-import { Upload, AlertCircle, CheckCircle } from 'lucide-react'
+import { Upload, AlertCircle, CheckCircle, Download } from 'lucide-react'
 import { parseCSV, importTransactionsFromCSV } from '@/lib/csvImport'
+import { useDb } from '@/contexts/DbContext'
 import { ActionLogger } from '@/lib/actionLogger'
 
 interface CSVUploadProps {
@@ -10,6 +11,7 @@ interface CSVUploadProps {
 }
 
 export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
+  const db = useDb()
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState({ current: 0, total: 0, stage: '' })
@@ -34,7 +36,7 @@ export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
       setProgress({ current: 30, total: 100, stage: `Importing ${rows.length} transactions...` })
 
       // Import with progress callback
-      const importResult = await importTransactionsFromCSV(rows, (current, total) => {
+      const importResult = await importTransactionsFromCSV(db, rows, (current, total) => {
         const percent = 30 + Math.floor((current / total) * 70)
         setProgress({ current: percent, total: 100, stage: `Importing ${current}/${total} transactions...` })
       })
@@ -88,6 +90,22 @@ export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
 
             {!result ? (
               <div className="space-y-4">
+                {/* Download Template */}
+                <div className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-white font-medium">Download Template</p>
+                    <p className="text-xs text-slate-400">Use our template for correct format</p>
+                  </div>
+                  <a
+                    href="/csv-template.csv"
+                    download="money-mngr-template.csv"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors"
+                  >
+                    <Download size={14} />
+                    Template
+                  </a>
+                </div>
+
                 <div
                   className="border-2 border-dashed border-slate-600 rounded-lg p-8 text-center cursor-pointer hover:border-slate-500 transition-colors"
                   onClick={() => fileInputRef.current?.click()}

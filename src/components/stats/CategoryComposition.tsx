@@ -1,7 +1,8 @@
 'use client'
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Transaction } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
+import type { Transaction } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
   PieChart,
@@ -11,6 +12,7 @@ import {
   Legend,
   Tooltip,
 } from 'recharts'
+import { resolveCategorySync, buildCategoryMaps } from '@/lib/categoryUtils'
 
 interface CategoryCompositionProps {
   dateRange: { startDate: Date; endDate: Date }
@@ -32,12 +34,13 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
     'EXPENSE'
   )
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null)
+  const db = useDb()
 
   // Fetch all transactions and filter by date range
-  const allTransactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
 
   // Filter transactions by date range
   const transactions = useMemo(() => {
@@ -53,29 +56,37 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
     })
   }, [allTransactions, dateRange])
 
-  // Calculate category breakdown using transactionType and category field
+  // Calculate category breakdown using transactionType and proper category resolution
   const categoryData = useMemo(() => {
-    if (!transactions || !categories) return []
+    if (!transactions || !categories || transactions.length === 0) return []
 
-    const categoryMap = new Map<string, number>()
+    // Build lookup maps for efficient category resolution
+    const { categoriesMap, categoriesByName } = buildCategoryMaps(categories)
+
+    const categoryTotals = new Map<string, { amount: number; icon: string }>()
 
     // Sum amounts by category where transaction type matches
     transactions.forEach((tx: Transaction) => {
-      // Use transactionType field for filtering
+      // Skip null/undefined transactions
+      if (!tx || !tx.transactionType) return
       if (tx.transactionType === transactionType) {
-        // Use category field from CSV import, or fall back to toCategoryId
-        const categoryName = tx.category || (tx.toCategoryId ? categories.find((c) => c.id === tx.toCategoryId)?.name : 'Unknown') || 'Unknown'
-        const current = categoryMap.get(categoryName) || 0
-        categoryMap.set(categoryName, current + tx.amount)
+        // Use the new category resolution utility with fallback
+        const resolved = resolveCategorySync(tx, categoriesMap, categoriesByName)
+        const key = resolved.name
+
+        const existing = categoryTotals.get(key) || { amount: 0, icon: resolved.icon }
+        existing.amount += tx.amount
+        categoryTotals.set(key, existing)
       }
     })
 
     // Convert to chart data
-    return Array.from(categoryMap.entries())
-      .map(([name, amount], index) => ({
+    return Array.from(categoryTotals.entries())
+      .map(([name, data], index) => ({
         id: index,
         name,
-        value: parseFloat(amount.toFixed(2)),
+        icon: data.icon,
+        value: parseFloat(data.amount.toFixed(2)),
       }))
       .sort((a, b) => b.value - a.value)
   }, [transactions, categories, transactionType])
@@ -189,6 +200,7 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: COLORS[index % COLORS.length] }}
               />
+              <span className="text-base">{cat.icon}</span>
               <div className="flex-1">
                 <p className="text-sm font-medium">{cat.name}</p>
                 <p className="text-xs text-muted-foreground">

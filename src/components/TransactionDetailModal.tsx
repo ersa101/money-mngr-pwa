@@ -1,6 +1,6 @@
 'use client'
 
-import { type Transaction, type Account, type Category } from '@/lib/db'
+import type { Transaction, Account, Category } from '@/types/database'
 import { Button } from './ui/button'
 import { X, Calendar, Clock, Tag, Landmark, FileText, ArrowRight } from 'lucide-react'
 

@@ -1,16 +1,17 @@
 'use client'
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import { useMemo } from 'react'
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from 'recharts'
 
 type PeriodType = 'monthly' | 'quarterly' | 'semi-annual' | 'annual' | 'custom'
@@ -21,11 +22,13 @@ interface NetWorthProps {
 }
 
 export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
+  const db = useDb()
+
   // Fetch accounts
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
 
   // Fetch all transactions
-  const allTransactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Calculate the number of days in the range to determine granularity
   const daysDiff = useMemo(() => {
@@ -226,13 +229,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
       </div>
 
       <ResponsiveContainer width="100%" height={350}>
-        <AreaChart data={netWorthData}>
-          <defs>
-            <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#10B981" stopOpacity={0.8} />
-              <stop offset="95%" stopColor="#10B981" stopOpacity={0.1} />
-            </linearGradient>
-          </defs>
+        <LineChart data={netWorthData}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis
             dataKey="date"
@@ -253,16 +250,44 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
               border: '1px solid var(--border)',
             }}
           />
-          <Area
+          <Legend />
+
+          {/* Net Worth - Purple */}
+          <Line
             type="monotone"
             dataKey="netWorth"
-            stroke="#10B981"
-            fillOpacity={1}
-            fill="url(#colorNetWorth)"
             name="Net Worth"
+            stroke="#8B5CF6"
+            strokeWidth={2}
+            dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
+            activeDot={{ r: 6 }}
             isAnimationActive={true}
           />
-        </AreaChart>
+
+          {/* Assets - Green */}
+          <Line
+            type="monotone"
+            dataKey="assets"
+            name="Assets"
+            stroke="#22C55E"
+            strokeWidth={2}
+            dot={{ fill: '#22C55E', strokeWidth: 2, r: 3 }}
+            activeDot={{ r: 5 }}
+            isAnimationActive={true}
+          />
+
+          {/* Liabilities - Red */}
+          <Line
+            type="monotone"
+            dataKey="liabilities"
+            name="Liabilities"
+            stroke="#EF4444"
+            strokeWidth={2}
+            dot={{ fill: '#EF4444', strokeWidth: 2, r: 3 }}
+            activeDot={{ r: 5 }}
+            isAnimationActive={true}
+          />
+        </LineChart>
       </ResponsiveContainer>
 
       {/* Explanation */}

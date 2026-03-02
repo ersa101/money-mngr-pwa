@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import { parseSMS } from '@/lib/smsParser';
 import { llmService } from '@/lib/llmService';
 import { formatCurrency } from '@/lib/currency-utils';
@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { CategorySelector } from '@/components/CategorySelector';
 import {
   Zap,
   Sparkles,
@@ -49,9 +50,10 @@ export function AddTransactionModal({
   onClose,
   editTransaction,
 }: AddTransactionModalProps) {
+  const db = useDb()
   // Data from IndexedDB
-  const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
-  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
 
   // SMS Parsing State
   const [smsText, setSmsText] = useState('');
@@ -65,14 +67,30 @@ export function AddTransactionModal({
   const [fromAccountId, setFromAccountId] = useState<string>('');
   const [toAccountId, setToAccountId] = useState<string>('');
   const [categoryId, setCategoryId] = useState<string>('');
+  const [subCategoryId, setSubCategoryId] = useState<string>('');
+  const [categoryError, setCategoryError] = useState<string>('');
   const [date, setDate] = useState(() => {
     const now = new Date();
     return now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
   });
+  const [note, setNote] = useState('');
   const [description, setDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLinkedTransaction, setIsLinkedTransaction] = useState(false);
   const [linkedPersonAccountId, setLinkedPersonAccountId] = useState<string>('');
+
+  // Autocomplete suggestions for Note field
+  const [noteSuggestions, setNoteSuggestions] = useState<string[]>([]);
+  const [showNoteSuggestions, setShowNoteSuggestions] = useState(false);
+
+  // Fetch unique notes from transaction history for autocomplete
+  const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db]) || [];
+  const uniqueNotes = useMemo(() => {
+    const notes = allTransactions
+      .map(t => t.description)
+      .filter((n): n is string => !!n && n.trim() !== '')
+    return [...new Set(notes)].sort();
+  }, [allTransactions]);
 
   // Filter categories by type
   const filteredCategories = useMemo(() => {
@@ -91,8 +109,11 @@ export function AddTransactionModal({
         setFromAccountId(editTransaction.fromAccountId?.toString() || '');
         setToAccountId(editTransaction.toAccountId?.toString() || '');
         setCategoryId(editTransaction.categoryId?.toString() || '');
+        setSubCategoryId(editTransaction.subCategoryId?.toString() || '');
+        setCategoryError('');
         setDate(new Date(editTransaction.date).toISOString().slice(0, 16));
-        setDescription(editTransaction.description || '');
+        setNote(editTransaction.description || '');
+        setDescription('');
         setParseSource(null);
       } else {
         // New transaction - reset form
@@ -108,9 +129,32 @@ export function AddTransactionModal({
     setFromAccountId('');
     setToAccountId('');
     setCategoryId('');
+    setSubCategoryId('');
+    setCategoryError('');
     setDate(new Date().toISOString().slice(0, 16));
+    setNote('');
     setDescription('');
     setParseSource(null);
+    setShowNoteSuggestions(false);
+  };
+
+  // Handle note input with autocomplete suggestions
+  const handleNoteChange = (value: string) => {
+    setNote(value);
+    if (value.trim().length > 0) {
+      const filtered = uniqueNotes.filter(n =>
+        n.toLowerCase().includes(value.toLowerCase())
+      );
+      setNoteSuggestions(filtered.slice(0, 8)); // Limit to 8 suggestions
+      setShowNoteSuggestions(filtered.length > 0);
+    } else {
+      setShowNoteSuggestions(false);
+    }
+  };
+
+  const selectNoteSuggestion = (suggestion: string) => {
+    setNote(suggestion);
+    setShowNoteSuggestions(false);
   };
 
   // ═══════════════════════════════════════════════════════════════
@@ -162,6 +206,11 @@ export function AddTransactionModal({
       return;
     }
 
+    if (!db) {
+      toast.error('Database not available');
+      return;
+    }
+
     setIsParsingAI(true);
 
     try {
@@ -207,7 +256,7 @@ export function AddTransactionModal({
           }
         }
         if (result.description) {
-          setDescription(result.description);
+          setNote(result.description);
         }
 
         setParseSource('ai');
@@ -247,9 +296,9 @@ export function AddTransactionModal({
       setDate(new Date(data.date).toISOString().slice(0, 16));
     }
 
-    // Set description
+    // Set note (from merchant name)
     if (data.merchant) {
-      setDescription(data.merchant);
+      setNote(data.merchant);
     }
 
     // Apply account suggestion
@@ -281,7 +330,16 @@ export function AddTransactionModal({
   // SAVE TRANSACTION
   // ═══════════════════════════════════════════════════════════════
   const handleSave = async () => {
+    if (!db) {
+      toast.error('Database not available');
+      return;
+    }
+
     // Validation
+    if (!note.trim()) {
+      toast.error('Please enter a note');
+      return;
+    }
     if (!amount || parseFloat(amount) <= 0) {
       toast.error('Please enter a valid amount');
       return;
@@ -303,9 +361,20 @@ export function AddTransactionModal({
       return;
     }
     if ((transactionType === 'EXPENSE' || transactionType === 'INCOME') && !categoryId) {
+      setCategoryError('Please select a category');
       toast.error('Please select a category');
       return;
     }
+    // Check if selected category has children (requires sub-category)
+    if (categoryId && transactionType !== 'TRANSFER') {
+      const hasChildren = categories.some(c => c.parentId === parseInt(categoryId));
+      if (hasChildren && !subCategoryId) {
+        setCategoryError('Please select a sub-category');
+        toast.error('Please select a sub-category');
+        return;
+      }
+    }
+    setCategoryError('');
     if (isLinkedTransaction && !linkedPersonAccountId) {
       toast.error('Please select a person for the linked transaction');
       return;
@@ -318,21 +387,53 @@ export function AddTransactionModal({
       const amountValue = parseFloat(amount);
 
       if (editTransaction?.id) {
-        // Update existing transaction
-        // Note: Complex balance recalculation for edits is not implemented here.
-        // This would require storing original values or deltas.
-        const transactionData: Partial<Transaction> = {
-          date: new Date(date).toISOString(),
-          amount: amountValue,
-          transactionType,
-          fromAccountId: fromAccountId ? parseInt(fromAccountId) : undefined,
-          toAccountId: toAccountId ? parseInt(toAccountId) : undefined,
-          categoryId: categoryId ? parseInt(categoryId) : undefined,
-          description: description.trim() || undefined,
-          updatedAt: now,
-        };
-        await db.transactions.update(editTransaction.id, transactionData);
-        toast.success('Transaction updated (balance not recalculated)');
+        // Update existing transaction WITH balance recalculation
+        await db.transaction('rw', db.transactions, db.accounts, async () => {
+          const oldTxn = editTransaction;
+
+          // Step 1: Reverse the OLD transaction's effect on balances
+          if (oldTxn.transactionType === 'EXPENSE' && oldTxn.fromAccountId) {
+            await db.accounts.where('id').equals(oldTxn.fromAccountId).modify(a => { a.balance += oldTxn.amount; });
+          } else if (oldTxn.transactionType === 'INCOME' && oldTxn.toAccountId) {
+            await db.accounts.where('id').equals(oldTxn.toAccountId).modify(a => { a.balance -= oldTxn.amount; });
+          } else if (oldTxn.transactionType === 'TRANSFER') {
+            if (oldTxn.fromAccountId) {
+              await db.accounts.where('id').equals(oldTxn.fromAccountId).modify(a => { a.balance += oldTxn.amount; });
+            }
+            if (oldTxn.toAccountId) {
+              await db.accounts.where('id').equals(oldTxn.toAccountId).modify(a => { a.balance -= oldTxn.amount; });
+            }
+          }
+
+          // Step 2: Apply the NEW transaction's effect on balances
+          if (transactionType === 'EXPENSE' && fromAccountId) {
+            await db.accounts.where('id').equals(parseInt(fromAccountId)).modify(a => { a.balance -= amountValue; });
+          } else if (transactionType === 'INCOME' && toAccountId) {
+            await db.accounts.where('id').equals(parseInt(toAccountId)).modify(a => { a.balance += amountValue; });
+          } else if (transactionType === 'TRANSFER') {
+            if (fromAccountId) {
+              await db.accounts.where('id').equals(parseInt(fromAccountId)).modify(a => { a.balance -= amountValue; });
+            }
+            if (toAccountId) {
+              await db.accounts.where('id').equals(parseInt(toAccountId)).modify(a => { a.balance += amountValue; });
+            }
+          }
+
+          // Step 3: Update the transaction record
+          await db.transactions.update(editTransaction.id!, {
+            date: new Date(date).toISOString(),
+            amount: amountValue,
+            transactionType,
+            fromAccountId: fromAccountId ? parseInt(fromAccountId) : undefined,
+            toAccountId: toAccountId ? parseInt(toAccountId) : undefined,
+            categoryId: categoryId ? parseInt(categoryId) : undefined,
+            subCategoryId: subCategoryId ? parseInt(subCategoryId) : undefined,
+            description: note.trim(),
+            notes: description.trim() || undefined,
+            updatedAt: now,
+          });
+        });
+        toast.success('Transaction updated!');
 
       } else {
         // Create new transaction
@@ -343,7 +444,9 @@ export function AddTransactionModal({
           fromAccountId: fromAccountId ? parseInt(fromAccountId) : undefined,
           toAccountId: toAccountId ? parseInt(toAccountId) : undefined,
           categoryId: categoryId ? parseInt(categoryId) : undefined,
-          description: description.trim() || undefined,
+          subCategoryId: subCategoryId ? parseInt(subCategoryId) : undefined,
+          description: note.trim(),
+          notes: description.trim() || undefined,
           status: 'CONFIRMED',
           source: parseSource === 'ai' || parseSource === 'regex' ? 'MAGIC_BOX' : 'MANUAL',
           currency: 'INR',
@@ -362,14 +465,14 @@ export function AddTransactionModal({
           await db.accounts.where('id').equals(parseInt(toAccountId)).modify(a => { a.balance += amountValue; });
         }
 
-        // Handle linked transaction
-        if (isLinkedTransaction && linkedPersonAccountId && transactionType === 'EXPENSE') {
+        // Handle linked transaction (for Transfer type)
+        if (isLinkedTransaction && linkedPersonAccountId && transactionType === 'TRANSFER') {
           const linkedTransactionId = await db.transactions.add({
             date: new Date(date).toISOString(),
             amount: amountValue,
             transactionType: 'INCOME',
             toAccountId: parseInt(linkedPersonAccountId),
-            description: `Linked: ${description || 'Payment on behalf'}`,
+            description: `Linked: ${note || 'Payment on behalf'}`,
             status: 'CONFIRMED',
             source: 'MANUAL',
             currency: 'INR',
@@ -380,8 +483,8 @@ export function AddTransactionModal({
 
           await db.transactions.update(mainTransactionId, { linkedTransactionId });
           await db.accounts.where('id').equals(parseInt(linkedPersonAccountId)).modify(a => { a.balance += amountValue; });
-          
-          toast.success('Transaction + linked receivable created!');
+
+          toast.success('Transfer + linked receivable created!');
         } else {
           toast.success('Transaction saved!');
         }
@@ -624,11 +727,59 @@ export function AddTransactionModal({
                       value={account.id!.toString()}
                       className="text-white"
                     >
-                      {account.name} ({formatCurrency(account.balance)})
+                      {account.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Safe Available Limit Display (Issue 5C - THE SOUL) */}
+              {transactionType === 'EXPENSE' && fromAccountId && (() => {
+                const selectedAccount = accounts.find(a => a.id?.toString() === fromAccountId);
+                if (!selectedAccount) return null;
+                const amountValue = parseFloat(amount) || 0;
+                const newBalance = selectedAccount.balance - amountValue;
+                const safeToSpend = selectedAccount.balance - selectedAccount.thresholdValue;
+                const newSafeToSpend = safeToSpend - amountValue;
+                const isBelowThreshold = newBalance < selectedAccount.thresholdValue;
+
+                return (
+                  <div className={`mt-2 p-3 rounded-lg border ${
+                    isBelowThreshold ? 'border-red-500 bg-red-500/10' : 'border-green-500/50 bg-green-500/10'
+                  }`}>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <div className="text-slate-400 text-xs">Current Balance</div>
+                        <div className="text-white font-medium">{formatCurrency(selectedAccount.balance)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400 text-xs">Threshold</div>
+                        <div className="text-slate-300">{formatCurrency(selectedAccount.thresholdValue)}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-400 text-xs">Safe to Spend</div>
+                        <div className={`font-medium ${safeToSpend > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {formatCurrency(Math.max(0, safeToSpend))}
+                        </div>
+                      </div>
+                      {amountValue > 0 && (
+                        <div>
+                          <div className="text-slate-400 text-xs">After This Expense</div>
+                          <div className={`font-medium ${newSafeToSpend >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {formatCurrency(Math.max(0, newSafeToSpend))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {isBelowThreshold && amountValue > 0 && (
+                      <div className="flex items-center gap-2 mt-2 text-red-400 text-xs">
+                        <AlertTriangle className="w-3 h-3" />
+                        This will put you below threshold!
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -650,7 +801,7 @@ export function AddTransactionModal({
                         value={account.id!.toString()}
                         className="text-white"
                       >
-                        {account.name} ({formatCurrency(account.balance)})
+                        {account.name}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -662,36 +813,32 @@ export function AddTransactionModal({
           <TransferPreview />
 
           {/* ═══════════════════════════════════════════════════════ */}
-          {/* CATEGORY (not for transfers) */}
+          {/* CATEGORY (not for transfers) - Now with nested sub-categories */}
           {/* ═══════════════════════════════════════════════════════ */}
           {transactionType !== 'TRANSFER' && (
             <div>
               <label className="block text-sm text-slate-400 mb-2">
                 Category *
               </label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  {filteredCategories.map((category) => (
-                    <SelectItem
-                      key={category.id}
-                      value={category.id!.toString()}
-                      className="text-white"
-                    >
-                      {category.icon} {category.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CategorySelector
+                categories={categories}
+                type={transactionType === 'INCOME' ? 'INCOME' : 'EXPENSE'}
+                selectedCategoryId={categoryId ? parseInt(categoryId) : undefined}
+                selectedSubCategoryId={subCategoryId ? parseInt(subCategoryId) : undefined}
+                onSelect={(catId, subCatId) => {
+                  setCategoryId(catId.toString());
+                  setSubCategoryId(subCatId?.toString() || '');
+                  setCategoryError('');
+                }}
+                error={categoryError}
+              />
             </div>
           )}
 
           {/* ═══════════════════════════════════════════════════════════ */}
-          {/* LINKED TRANSACTION (Only for Expense) */}
+          {/* LINKED TRANSACTION (Only for Transfer) */}
           {/* ═══════════════════════════════════════════════════════════ */}
-          {transactionType === 'EXPENSE' && (
+          {transactionType === 'TRANSFER' && (
             <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600">
               <div className="flex items-center gap-3">
                 <input
@@ -699,22 +846,22 @@ export function AddTransactionModal({
                   id="isLinked"
                   checked={isLinkedTransaction}
                   onChange={(e) => setIsLinkedTransaction(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-500 bg-slate-700 
+                  className="w-4 h-4 rounded border-slate-500 bg-slate-700
                              text-purple-500 focus:ring-purple-500"
                 />
                 <label htmlFor="isLinked" className="text-sm text-slate-300">
                   This is a payment for someone (create linked transaction)
                 </label>
               </div>
-              
+
               {isLinkedTransaction && (
                 <div className="mt-4 pl-7 space-y-3">
                   <div>
                     <label className="block text-sm text-slate-400 mb-2">
                       Create receivable in *
                     </label>
-                    <Select 
-                      value={linkedPersonAccountId} 
+                    <Select
+                      value={linkedPersonAccountId}
                       onValueChange={setLinkedPersonAccountId}
                     >
                       <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
@@ -729,20 +876,20 @@ export function AddTransactionModal({
                               value={account.id!.toString()}
                               className="text-white"
                             >
-                              👤 {account.name} ({formatCurrency(account.balance)})
+                              👤 {account.name}
                             </SelectItem>
                           ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  
+
                   {/* Preview */}
                   {linkedPersonAccountId && (
                     <div className="bg-slate-800 rounded-lg p-3 text-sm">
                       <div className="text-slate-400 mb-2">Will create:</div>
                       <div className="flex items-center gap-2 text-slate-300">
-                        <span className="text-red-400">1.</span>
-                        <span>Expense from {accounts.find(a => a.id?.toString() === fromAccountId)?.name}</span>
+                        <span className="text-blue-400">1.</span>
+                        <span>Transfer from {accounts.find(a => a.id?.toString() === fromAccountId)?.name}</span>
                       </div>
                       <div className="flex items-center gap-2 text-slate-300 mt-1">
                         <span className="text-green-400">2.</span>
@@ -771,17 +918,54 @@ export function AddTransactionModal({
           </div>
 
           {/* ═══════════════════════════════════════════════════════ */}
-          {/* NOTE */}
+          {/* NOTE (REQUIRED) with Autocomplete */}
+          {/* ═══════════════════════════════════════════════════════ */}
+          <div className="relative">
+            <label className="block text-sm text-slate-400 mb-2">
+              Note *
+            </label>
+            <Input
+              type="text"
+              value={note}
+              onChange={(e) => handleNoteChange(e.target.value)}
+              onFocus={() => note.trim() && noteSuggestions.length > 0 && setShowNoteSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowNoteSuggestions(false), 200)}
+              placeholder="e.g., RS/Dinner, Office lunch, Grocery..."
+              className="bg-slate-700/50 border-slate-600 text-white"
+              autoComplete="off"
+            />
+            {/* Autocomplete dropdown */}
+            {showNoteSuggestions && noteSuggestions.length > 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {noteSuggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectNoteSuggestion(suggestion);
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 focus:bg-slate-700 transition-colors"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ═══════════════════════════════════════════════════════ */}
+          {/* DESCRIPTION (OPTIONAL) */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div>
             <label className="block text-sm text-slate-400 mb-2">
-              Note (optional)
+              Description (optional)
             </label>
             <Input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add a note..."
+              placeholder="Additional details..."
               className="bg-slate-700/50 border-slate-600 text-white"
             />
           </div>

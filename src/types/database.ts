@@ -6,7 +6,7 @@ export type AccountType =
   | 'WALLET'
   | 'INVESTMENT'
   | 'CREDIT_CARD'
-  | 'PERSON'; // From V3
+  | 'PERSON';
 
 export interface Account {
   id?: number;
@@ -16,10 +16,11 @@ export interface Account {
   thresholdValue: number;
   color?: string;
   icon?: string;
-  groupId?: number;
-  isPerson?: boolean; // From V3
-  createdAt: string;
-  updatedAt: string;
+  group?: string; // Custom grouping name for display
+  includeInNetWorth?: boolean; // Whether to include in net worth calculation (default: true)
+  isLiability?: boolean; // Whether this account is a liability (e.g., credit card debt)
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Category {
@@ -30,8 +31,8 @@ export interface Category {
   icon?: string;
   color?: string;
   sortOrder?: number;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
@@ -45,12 +46,16 @@ export interface Transaction {
   fromAccountId?: number;
   toAccountId?: number;
   categoryId?: number;
-  subCategoryId?: number; // Mentioned in old db.ts but not in prompts, good to have.
+  subCategoryId?: number;
   description?: string;
+  notes?: string;
   status: TransactionStatus;
   source: TransactionSource;
   currency: string;
-  linkedTransactionId?: number; // From V3
-  createdAt: string;
-  updatedAt: string;
+  linkedTransactionId?: number;
+  // CSV fallback fields for category resolution
+  csvCategory?: string;
+  csvSubcategory?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }

@@ -1,7 +1,8 @@
 'use client'
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Transaction } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
+import type { Transaction } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
   LineChart,
@@ -24,12 +25,13 @@ export function AccountBalanceHistory({
   dateRange,
 }: AccountBalanceHistoryProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
+  const db = useDb()
 
   // Fetch accounts
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
 
   // Fetch all transactions
-  const allTransactionsData = useLiveQuery(() => db.transactions.toArray(), [])
+  const allTransactionsData = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Get transactions for selected account
   const allTransactions = useMemo(() => {

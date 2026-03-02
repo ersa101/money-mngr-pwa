@@ -1,20 +1,20 @@
 'use client'
 
-import { db, Transaction } from './db'
+import type { MySubClassedDB } from './db'
 import * as XLSX from 'xlsx'
 
-export async function exportTransactionsToExcel() {
+export async function exportTransactionsToExcel(db: MySubClassedDB) {
   try {
     // Fetch all transactions from database
     const transactions = await db.transactions.toArray()
-    
+
     if (transactions.length === 0) {
       alert('No transactions to export')
       return
     }
 
     // Map transactions to Excel format with all fields
-    const excelData = transactions.map((tx) => ({
+    const excelData = transactions.map((tx: any) => ({
       'Date': tx.date instanceof Date ? tx.date.toLocaleString('en-IN') : tx.date,
       'Account': tx.csvAccount || '',
       'Category': tx.csvCategory || tx.category || '',
@@ -63,7 +63,7 @@ export async function exportTransactionsToExcel() {
 
     // Write file
     XLSX.writeFile(wb, filename)
-    
+
     return { success: true, count: transactions.length, filename }
   } catch (error) {
     console.error('Export error:', error)
@@ -72,18 +72,18 @@ export async function exportTransactionsToExcel() {
   }
 }
 
-export async function exportTransactionsToCSV() {
+export async function exportTransactionsToCSV(db: MySubClassedDB) {
   try {
     // Fetch all transactions from database
     const transactions = await db.transactions.toArray()
-    
+
     if (transactions.length === 0) {
       alert('No transactions to export')
       return
     }
 
     // Map transactions to CSV format
-    const csvData = transactions.map((tx) => [
+    const csvData = transactions.map((tx: any) => [
       tx.date instanceof Date ? tx.date.toLocaleString('en-IN') : tx.date,
       tx.csvAccount || '',
       tx.csvCategory || tx.category || '',
@@ -100,7 +100,7 @@ export async function exportTransactionsToCSV() {
     const allRows = [header, ...csvData]
 
     // Convert to CSV string
-    const csv = allRows.map(row => 
+    const csv = allRows.map(row =>
       row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
     ).join('\n')
 

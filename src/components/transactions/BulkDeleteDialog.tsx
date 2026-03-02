@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,6 +28,7 @@ export function BulkDeleteDialog({
   onSuccess,
 }: BulkDeleteDialogProps) {
   const [isDeleting, setIsDeleting] = useState(false);
+  const db = useDb();
 
   // Calculate totals
   const totalExpense = transactions
@@ -39,6 +40,11 @@ export function BulkDeleteDialog({
     .reduce((sum, t) => sum + t.amount, 0);
 
   const handleDelete = async () => {
+    if (!db) {
+      toast.error('Database not available');
+      return;
+    }
+
     setIsDeleting(true);
 
     try {

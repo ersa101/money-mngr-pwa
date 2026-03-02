@@ -2,182 +2,117 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Account, type Category, type Transaction } from '@/lib/db'
+import { useDb } from '@/contexts/DbContext'
+import type { Account, Category, Transaction } from '@/types/database'
 import { Button } from '@/components/ui/button'
-import { Settings, Tag, Landmark, Pencil, Trash2, Plus, X, Check, FolderOpen, ChevronDown, ChevronRight, AlertTriangle, TrendingUp, TrendingDown, Key } from 'lucide-react'
+import { Settings, Tag, Landmark, Pencil, Trash2, Plus, X, Check, FolderOpen, ChevronDown, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import { BackupSection } from '@/components/settings/BackupSection'
 import { SnapshotSection } from '@/components/settings/SnapshotSection'
+import toast from 'react-hot-toast'
 
-type TabType = 'categories' | 'accounts' | 'data' | 'api'
-type CategoryTypeFilter = 'all' | 'expense' | 'income'
+type TabType = 'categories' | 'accounts' | 'data'
 
-// Delete confirmation modal state
-interface DeleteModalState {
-  isOpen: boolean
-  type: 'category' | 'subcategory' | null
-  categoryName: string
-  subCategoryName?: string
-  transactionCount: number
-  transferTo: string
+// Account type display names
+const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+  BANK: 'Bank Accounts',
+  SAVINGS: 'Savings Accounts',
+  CASH: 'Cash',
+  WALLET: 'Digital Wallets',
+  CREDIT_CARD: 'Credit Cards',
+  LOAN: 'Loans',
+  INVESTMENT: 'Investments',
+  PERSON: 'People (Loans & Debts)',
+  OTHER: 'Other',
 }
 
 export default function SettingsPage() {
+  const db = useDb()
   const [activeTab, setActiveTab] = useState<TabType>('data')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
+  const [expandedCategoryTypes, setExpandedCategoryTypes] = useState<Set<string>>(new Set(['EXPENSE', 'INCOME']))
   const [expandedAccountTypes, setExpandedAccountTypes] = useState<Set<string>>(new Set())
 
-  // Add category/subcategory state
+  // Add category state
   const [showAddCategory, setShowAddCategory] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [newCategoryType, setNewCategoryType] = useState<'EXPENSE' | 'INCOME'>('EXPENSE')
-  const [showAddSubCategory, setShowAddSubCategory] = useState<string | null>(null) // category name or null
-  const [newSubCategoryName, setNewSubCategoryName] = useState('')
-  const [categoryTypeFilter, setCategoryTypeFilter] = useState<CategoryTypeFilter>('all')
-  const [expandedCategoryTypes, setExpandedCategoryTypes] = useState<Set<string>>(new Set(['EXPENSE', 'INCOME']))
+  const [newParentId, setNewParentId] = useState<number | undefined>(undefined)
 
-  // API Keys state
-  const [apiKeys, setApiKeys] = useState({
-    gemini: '',
-    openai: '',
-    claude: ''
-  })
-  const [showApiKeys, setShowApiKeys] = useState(false)
-
-  // Delete modal state
-  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({
-    isOpen: false,
-    type: null,
-    categoryName: '',
-    subCategoryName: undefined,
-    transactionCount: 0,
-    transferTo: ''
-  })
+  // Editing state
+  const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null)
+  const [editingCategoryName, setEditingCategoryName] = useState('')
 
   // Fetch data
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const transactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
-  // Get unique categories with their subcategories from transactions
-  // Also determine if category is primarily INCOME or EXPENSE based on transaction types
-  const categoriesWithSubcategories = useMemo(() => {
-    if (!transactions) return []
+  // Build category hierarchy
+  const categoryHierarchy = useMemo(() => {
+    if (!categories) return { EXPENSE: [], INCOME: [] }
 
-    const catMap = new Map<string, {
-      count: number
-      total: number
-      incomeCount: number
-      expenseCount: number
-      subCategories: Map<string, { count: number; total: number }>
-    }>()
+    // Filter out null/undefined categories first
+    const validCategories = categories.filter((c): c is Category => !!c && !!c.type && !!c.name)
 
-    transactions.forEach((tx: Transaction) => {
-      const category = categories?.find(c => c.id === tx.categoryId)
-      if (category) {
-        const catName = category.name
-        const existing = catMap.get(catName) || {
-          count: 0,
-          total: 0,
-          incomeCount: 0,
-          expenseCount: 0,
-          subCategories: new Map()
-        }
-        existing.count += 1
-        existing.total += tx.amount
+    // Get root categories (no parentId)
+    const rootCategories = validCategories.filter(c => !c.parentId)
 
-        // Track transaction type for determining category type
-        if (tx.transactionType === 'INCOME') {
-          existing.incomeCount += 1
-        } else if (tx.transactionType === 'EXPENSE') {
-          existing.expenseCount += 1
-        }
-        
-        // This logic seems flawed for subcategories as they aren't directly on the transaction in the new model
-        // if (tx.subCategory) {
-        //   const subExisting = existing.subCategories.get(tx.subCategory) || { count: 0, total: 0 }
-        //   existing.subCategories.set(tx.subCategory, {
-        //     count: subExisting.count + 1,
-        //     total: subExisting.total + tx.amount,
-        //   })
-        // }
-
-        catMap.set(catName, existing)
-      }
-    })
-
-    return Array.from(catMap.entries())
-      .map(([name, data]) => {
-        const cat = categories?.find(c => c.name === name);
-        return {
-          name,
-          count: data.count,
-          total: data.total,
-          type: cat?.type || 'EXPENSE',
-          subCategories: [] // Subcategory logic needs rework based on new data model
-        }
-      })
-      .sort((a, b) => b.count - a.count)
-  }, [transactions, categories])
-
-  // Group categories by type (INCOME vs EXPENSE)
-  const categoriesByType = useMemo(() => {
-    const grouped = {
-      EXPENSE: categoriesWithSubcategories.filter(c => c.type === 'EXPENSE'),
-      INCOME: categoriesWithSubcategories.filter(c => c.type === 'INCOME')
+    // For each root category, find its children
+    const buildTree = (parentId: number): Category[] => {
+      return validCategories.filter(c => c.parentId === parentId)
     }
-    return grouped
-  }, [categoriesWithSubcategories])
 
-  // Filtered categories based on type filter
-  const filteredCategories = useMemo(() => {
-    if (categoryTypeFilter === 'all') return categoriesWithSubcategories
-    if (categoryTypeFilter === 'expense') return categoriesByType.EXPENSE
-    return categoriesByType.INCOME
-  }, [categoriesWithSubcategories, categoriesByType, categoryTypeFilter])
+    const expenseCategories = rootCategories
+      .filter(c => c.type === 'EXPENSE')
+      .map(cat => ({
+        ...cat,
+        children: buildTree(cat.id!)
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
 
-  // Group accounts by type, then by group within each type
-  const accountsByTypeAndGroup = useMemo(() => {
-    if (!accounts) return new Map<string, Map<string, Account[]>>()
+    const incomeCategories = rootCategories
+      .filter(c => c.type === 'INCOME')
+      .map(cat => ({
+        ...cat,
+        children: buildTree(cat.id!)
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
 
-    const typeMap = new Map<string, Map<string, Account[]>>()
+    return {
+      EXPENSE: expenseCategories,
+      INCOME: incomeCategories
+    }
+  }, [categories])
+
+  // Get transaction count for a category
+  const getCategoryTransactionCount = (categoryId: number): number => {
+    if (!transactions) return 0
+    return transactions.filter(t => t && (t.categoryId === categoryId || t.subCategoryId === categoryId)).length
+  }
+
+  // Group accounts by type
+  const accountsByType = useMemo(() => {
+    if (!accounts) return new Map<string, Account[]>()
+
+    const typeMap = new Map<string, Account[]>()
 
     accounts.forEach(account => {
-      const typeName = account.type || 'OTHER'
-      const groupName = account.groupId?.toString() || 'Ungrouped' // Changed to groupId
-
-      if (!typeMap.has(typeName)) {
-        typeMap.set(typeName, new Map())
+      // Skip null/undefined accounts
+      if (!account || !account.name) return
+      const accountType = account.type || 'OTHER'
+      if (!typeMap.has(accountType)) {
+        typeMap.set(accountType, [])
       }
-      const groupMap = typeMap.get(typeName)!
-
-      if (!groupMap.has(groupName)) {
-        groupMap.set(groupName, [])
-      }
-      groupMap.get(groupName)!.push(account)
+      typeMap.get(accountType)!.push(account)
     })
 
-    // Sort types
-    const sortedTypeMap = new Map(
-      Array.from(typeMap.entries()).sort(([a], [b]) => a.localeCompare(b))
-    )
+    // Sort accounts within each type by name
+    typeMap.forEach((accs, type) => {
+      accs.sort((a, b) => a.name.localeCompare(b.name))
+    })
 
-    return sortedTypeMap
+    return typeMap
   }, [accounts])
-
-  const toggleCategory = (catName: string) => {
-    setExpandedCategories(prev => {
-      const newSet = new Set(prev)
-      if (newSet.has(catName)) {
-        newSet.delete(catName)
-      } else {
-        newSet.add(catName)
-      }
-      return newSet
-    })
-  }
 
   const toggleCategoryType = (typeName: string) => {
     setExpandedCategoryTypes(prev => {
@@ -205,55 +140,91 @@ export default function SettingsPage() {
 
   // Add new category
   const addCategory = async () => {
+    if (!db) {
+      toast.error('Database not available')
+      return
+    }
     if (!newCategoryName.trim()) return
 
     const exists = categories?.some(
-      cat => cat.name.toLowerCase() === newCategoryName.trim().toLowerCase()
+      cat => cat.name.toLowerCase() === newCategoryName.trim().toLowerCase() &&
+             cat.type === newCategoryType &&
+             cat.parentId === newParentId
     )
     if (exists) {
-      window.alert('Category already exists!')
+      toast.error('Category already exists!')
       return
     }
 
     await db.categories.add({
       name: newCategoryName.trim(),
       type: newCategoryType,
-      icon: 'tag',
+      parentId: newParentId,
+      icon: '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
 
+    toast.success('Category added!')
     setNewCategoryName('')
-    setNewCategoryType('EXPENSE')
+    setNewParentId(undefined)
     setShowAddCategory(false)
   }
-  
-  // Load API keys from localStorage on mount
-  useEffect(() => {
-    const savedKeys = {
-      gemini: localStorage.getItem('gemini_api_key') || '',
-      openai: localStorage.getItem('openai_api_key') || '',
-      claude: localStorage.getItem('claude_api_key') || '',
-    };
-    setApiKeys(savedKeys);
-  }, []);
 
-  // Save API keys
-  const saveApiKeys = () => {
-    localStorage.setItem('gemini_api_key', apiKeys.gemini);
-    localStorage.setItem('openai_api_key', apiKeys.openai);
-    localStorage.setItem('claude_api_key', apiKeys.claude);
-    window.alert('API keys saved securely to browser storage.')
+  // Update category name
+  const updateCategoryName = async (categoryId: number) => {
+    if (!db) {
+      toast.error('Database not available')
+      return
+    }
+    if (!editingCategoryName.trim()) return
+
+    await db.categories.update(categoryId, {
+      name: editingCategoryName.trim(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    toast.success('Category updated!')
+    setEditingCategoryId(null)
+    setEditingCategoryName('')
+  }
+
+  // Delete category
+  const deleteCategory = async (categoryId: number, categoryName: string) => {
+    if (!db) {
+      toast.error('Database not available')
+      return
+    }
+    const count = getCategoryTransactionCount(categoryId)
+    if (count > 0) {
+      toast.error(`Cannot delete "${categoryName}" - it has ${count} transactions`)
+      return
+    }
+
+    if (!window.confirm(`Delete category "${categoryName}"?`)) return
+
+    // Also delete children
+    const children = categories?.filter(c => c.parentId === categoryId) || []
+    for (const child of children) {
+      if (child.id) await db.categories.delete(child.id)
+    }
+
+    await db.categories.delete(categoryId)
+    toast.success('Category deleted!')
   }
 
   // Clear all data
   const clearAllData = async () => {
+    if (!db) {
+      toast.error('Database not available')
+      return
+    }
     if (window.confirm('Are you sure you want to clear ALL data? This cannot be undone.')) {
       await db.transactions.clear()
       await db.accounts.clear()
       await db.categories.clear()
       ActionLogger.dataClear('all')
-      window.alert('All data cleared.')
+      toast.success('All data cleared.')
     }
   }
 
@@ -261,9 +232,9 @@ export default function SettingsPage() {
   useEffect(() => {
     ActionLogger.pageView('/settings')
   }, [])
-  
+
   return (
-    <div className="min-h-screen bg-background pb-24 text-white">
+    <div className="min-h-screen bg-background pb-24">
       {/* Header */}
       <div className="border-b border-border bg-card/50">
         <div className="max-w-6xl mx-auto px-4 py-6">
@@ -272,7 +243,6 @@ export default function SettingsPage() {
               <Settings className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">Settings</h1>
               <p className="text-sm text-muted-foreground">
                 Manage categories, accounts, and data
               </p>
@@ -291,17 +261,6 @@ export default function SettingsPage() {
             >
               <FolderOpen className="w-4 h-4" />
               Data Management
-            </button>
-            <button
-              onClick={() => setActiveTab('api')}
-              className={`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition ${
-                activeTab === 'api'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              <Key className="w-4 h-4" />
-              API Keys
             </button>
             <button
               onClick={() => setActiveTab('categories')}
@@ -336,7 +295,7 @@ export default function SettingsPage() {
           <div className="space-y-6">
             <BackupSection />
             <SnapshotSection />
-            
+
             {/* Danger Zone */}
             <div className="bg-card rounded-lg border border-destructive/50 p-6">
               <h2 className="text-lg font-semibold mb-4 text-destructive">Danger Zone</h2>
@@ -350,100 +309,439 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
-        
-        {/* Categories Tab (simplified) */}
+
+        {/* Categories Tab */}
         {activeTab === 'categories' && (
-          <div className="bg-card rounded-lg border border-border p-6">
-             <h2 className="text-lg font-semibold flex items-center gap-2">
+          <div className="space-y-6">
+            {/* Add Category Button */}
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Tag className="w-5 h-5" />
-                Categories
+                Categories ({categories?.length || 0})
               </h2>
-              {/* Simplified category management UI */}
-          </div>
-        )}
-
-        {/* Accounts Tab (simplified) */}
-        {activeTab === 'accounts' && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Landmark className="w-5 h-5" />
-              Accounts ({accounts?.length || 0})
-            </h2>
-            {/* Simplified account management UI */}
-          </div>
-        )}
-
-        {/* API Keys Tab */}
-        {activeTab === 'api' && (
-          <div className="bg-card rounded-lg border border-border p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Key className="w-5 h-5" />
-              <div>
-                <h2 className="text-lg font-semibold">LLM API Keys</h2>
-                <p className="text-sm text-muted-foreground">
-                  Configure API keys for AI-powered SMS parsing. Keys are stored securely in browser storage.
-                </p>
-              </div>
+              <Button onClick={() => setShowAddCategory(true)} size="sm">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Category
+              </Button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Google Gemini API Key
-                </label>
-                <div className="relative">
-                  <input
-                    type={showApiKeys ? 'text' : 'password'}
-                    value={apiKeys.gemini}
-                    onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
-                    placeholder="AIza..."
-                    className="w-full px-3 py-2 border border-border rounded bg-background text-sm pr-20"
-                  />
+            {/* Add Category Form */}
+            {showAddCategory && (
+              <div className="bg-card rounded-lg border border-border p-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      placeholder="Category name"
+                      className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-sm"
+                      autoFocus
+                    />
+                    <select
+                      value={newCategoryType}
+                      onChange={(e) => setNewCategoryType(e.target.value as 'EXPENSE' | 'INCOME')}
+                      className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    >
+                      <option value="EXPENSE">Expense</option>
+                      <option value="INCOME">Income</option>
+                    </select>
+                  </div>
+                  <div className="flex gap-3">
+                    <select
+                      value={newParentId || ''}
+                      onChange={(e) => setNewParentId(e.target.value ? parseInt(e.target.value) : undefined)}
+                      className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    >
+                      <option value="">No parent (root category)</option>
+                      {categories?.filter(c => c.type === newCategoryType && !c.parentId).map(cat => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Button onClick={addCategory} size="sm">
+                      <Check className="w-4 h-4 mr-1" />
+                      Add
+                    </Button>
+                    <Button variant="ghost" onClick={() => setShowAddCategory(false)} size="sm">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
+            )}
 
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  OpenAI API Key
-                </label>
-                <input
-                  type={showApiKeys ? 'text' : 'password'}
-                  value={apiKeys.openai}
-                  onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
-                  placeholder="sk-..."
-                  className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
-                />
-              </div>
+            {/* Expense Categories */}
+            <div className="bg-card rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => toggleCategoryType('EXPENSE')}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {expandedCategoryTypes.has('EXPENSE') ? (
+                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                  )}
+                  <TrendingDown className="w-5 h-5 text-red-500" />
+                  <div className="text-left">
+                    <h3 className="font-semibold">Expense Categories</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {categoryHierarchy.EXPENSE.length} categories
+                    </p>
+                  </div>
+                </div>
+              </button>
 
-              <div>
-                <label className="block text-sm font-medium mb-2">
-                  Anthropic Claude API Key
-                </label>
-                <input
-                  type={showApiKeys ? 'text' : 'password'}
-                  value={apiKeys.claude}
-                  onChange={(e) => setApiKeys({ ...apiKeys, claude: e.target.value })}
-                  placeholder="sk-ant-..."
-                  className="w-full px-3 py-2 border border-border rounded bg-background text-sm"
-                />
-              </div>
+              {expandedCategoryTypes.has('EXPENSE') && (
+                <div className="border-t border-border p-4 space-y-2">
+                  {categoryHierarchy.EXPENSE.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No expense categories yet</p>
+                  ) : (
+                    categoryHierarchy.EXPENSE.map((cat: any) => (
+                      <div key={cat.id} className="space-y-1">
+                        {/* Parent Category */}
+                        <div className="flex items-center justify-between p-2 rounded bg-muted/30 hover:bg-muted/50">
+                          {editingCategoryId === cat.id ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <input
+                                type="text"
+                                value={editingCategoryName}
+                                onChange={(e) => setEditingCategoryName(e.target.value)}
+                                className="flex-1 px-2 py-1 border border-border rounded bg-background text-sm"
+                                autoFocus
+                              />
+                              <Button size="sm" variant="ghost" onClick={() => updateCategoryName(cat.id!)}>
+                                <Check className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditingCategoryId(null)}>
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                {cat.icon && <span className="text-lg">{cat.icon}</span>}
+                                <span className="font-medium">{cat.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({getCategoryTransactionCount(cat.id!)} txns)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingCategoryId(cat.id!)
+                                    setEditingCategoryName(cat.name)
+                                  }}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteCategory(cat.id!, cat.name)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
 
-              <div className="flex items-center justify-between pt-4 border-t border-border">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showApiKeys}
-                    onChange={(e) => setShowApiKeys(e.target.checked)}
-                    className="w-4 h-4 rounded border-border"
-                  />
-                  <span className="text-sm">Show API keys</span>
-                </label>
-                <Button onClick={saveApiKeys}>
-                  <Check className="w-4 h-4 mr-2" />
-                  Save API Keys
-                </Button>
-              </div>
+                        {/* Children */}
+                        {cat.children && cat.children.length > 0 && (
+                          <div className="ml-6 space-y-1">
+                            {cat.children.map((child: Category) => (
+                              <div key={child.id} className="flex items-center justify-between p-2 rounded hover:bg-muted/30">
+                                {editingCategoryId === child.id ? (
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <input
+                                      type="text"
+                                      value={editingCategoryName}
+                                      onChange={(e) => setEditingCategoryName(e.target.value)}
+                                      className="flex-1 px-2 py-1 border border-border rounded bg-background text-sm"
+                                      autoFocus
+                                    />
+                                    <Button size="sm" variant="ghost" onClick={() => updateCategoryName(child.id!)}>
+                                      <Check className="w-4 h-4" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setEditingCategoryId(null)}>
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-muted-foreground">↳</span>
+                                      {child.icon && <span className="text-lg">{child.icon}</span>}
+                                      <span>{child.name}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        ({getCategoryTransactionCount(child.id!)} txns)
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setEditingCategoryId(child.id!)
+                                          setEditingCategoryName(child.name)
+                                        }}
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => deleteCategory(child.id!, child.name)}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
+
+            {/* Income Categories */}
+            <div className="bg-card rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => toggleCategoryType('INCOME')}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {expandedCategoryTypes.has('INCOME') ? (
+                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                  )}
+                  <TrendingUp className="w-5 h-5 text-green-500" />
+                  <div className="text-left">
+                    <h3 className="font-semibold">Income Categories</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {categoryHierarchy.INCOME.length} categories
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {expandedCategoryTypes.has('INCOME') && (
+                <div className="border-t border-border p-4 space-y-2">
+                  {categoryHierarchy.INCOME.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No income categories yet</p>
+                  ) : (
+                    categoryHierarchy.INCOME.map((cat: any) => (
+                      <div key={cat.id} className="space-y-1">
+                        {/* Parent Category */}
+                        <div className="flex items-center justify-between p-2 rounded bg-muted/30 hover:bg-muted/50">
+                          {editingCategoryId === cat.id ? (
+                            <div className="flex items-center gap-2 flex-1">
+                              <input
+                                type="text"
+                                value={editingCategoryName}
+                                onChange={(e) => setEditingCategoryName(e.target.value)}
+                                className="flex-1 px-2 py-1 border border-border rounded bg-background text-sm"
+                                autoFocus
+                              />
+                              <Button size="sm" variant="ghost" onClick={() => updateCategoryName(cat.id!)}>
+                                <Check className="w-4 h-4" />
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => setEditingCategoryId(null)}>
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                {cat.icon && <span className="text-lg">{cat.icon}</span>}
+                                <span className="font-medium">{cat.name}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  ({getCategoryTransactionCount(cat.id!)} txns)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingCategoryId(cat.id!)
+                                    setEditingCategoryName(cat.name)
+                                  }}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteCategory(cat.id!, cat.name)}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Children */}
+                        {cat.children && cat.children.length > 0 && (
+                          <div className="ml-6 space-y-1">
+                            {cat.children.map((child: Category) => (
+                              <div key={child.id} className="flex items-center justify-between p-2 rounded hover:bg-muted/30">
+                                {editingCategoryId === child.id ? (
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <input
+                                      type="text"
+                                      value={editingCategoryName}
+                                      onChange={(e) => setEditingCategoryName(e.target.value)}
+                                      className="flex-1 px-2 py-1 border border-border rounded bg-background text-sm"
+                                      autoFocus
+                                    />
+                                    <Button size="sm" variant="ghost" onClick={() => updateCategoryName(child.id!)}>
+                                      <Check className="w-4 h-4" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setEditingCategoryId(null)}>
+                                      <X className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-muted-foreground">↳</span>
+                                      {child.icon && <span className="text-lg">{child.icon}</span>}
+                                      <span>{child.name}</span>
+                                      <span className="text-xs text-muted-foreground">
+                                        ({getCategoryTransactionCount(child.id!)} txns)
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setEditingCategoryId(child.id!)
+                                          setEditingCategoryName(child.name)
+                                        }}
+                                      >
+                                        <Pencil className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => deleteCategory(child.id!, child.name)}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Accounts Tab */}
+        {activeTab === 'accounts' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Landmark className="w-5 h-5" />
+                Accounts ({accounts?.length || 0})
+              </h2>
+            </div>
+
+            {!accounts || accounts.length === 0 ? (
+              <div className="bg-card rounded-lg border border-border p-8 text-center">
+                <Landmark className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <p className="text-muted-foreground">No accounts yet. Add accounts from the Accounts page.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {Array.from(accountsByType.entries()).map(([accountType, typeAccounts]) => {
+                  const typeKey = `type-${accountType}`
+                  const isExpanded = expandedAccountTypes.has(typeKey)
+                  const totalBalance = typeAccounts.reduce((sum, acc) => sum + acc.balance, 0)
+
+                  return (
+                    <div key={typeKey} className="bg-card rounded-lg border border-border overflow-hidden">
+                      <button
+                        onClick={() => toggleAccountType(typeKey)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          {isExpanded ? (
+                            <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                          )}
+                          <div className="text-left">
+                            <h3 className="font-semibold">{ACCOUNT_TYPE_LABELS[accountType] || accountType}</h3>
+                            <p className="text-sm text-muted-foreground">
+                              {typeAccounts.length} account{typeAccounts.length !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            ₹{totalBalance.toLocaleString()}
+                          </p>
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-border p-4 space-y-2">
+                          {typeAccounts.map(account => (
+                            <div
+                              key={account.id}
+                              className="flex items-center justify-between p-3 rounded bg-muted/30 hover:bg-muted/50"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: account.color || '#6366f1' }}
+                                />
+                                <div>
+                                  <p className="font-medium">{account.name}</p>
+                                  {account.group && (
+                                    <p className="text-xs text-muted-foreground">{account.group}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className={`font-semibold ${account.balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  ₹{account.balance.toLocaleString()}
+                                </p>
+                                {account.balance < account.thresholdValue && (
+                                  <p className="text-xs text-orange-500">Below threshold</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>

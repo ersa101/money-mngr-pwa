@@ -5,11 +5,11 @@ const withPWA = withPWAInit({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === 'development',
-  fallbacks: {
-    document: '/offline.html',
-  },
   cacheOnFrontEndNav: true,
   reloadOnOnline: true,
+  buildExcludes: [/middleware-manifest\.json$/],
+  // Cache versioning - INCREMENT THIS ON EACH DEPLOY
+  cacheId: 'money-mngr-v2',
 })
 
 /** @type {import('next').NextConfig} */

@@ -20,16 +20,14 @@ interface BackupData {
   accounts: any[];
   categories: any[];
   transactions: any[];
-  accountTypes: any[];
-  accountGroups: any[];
 }
 
 export async function backupToSheets(data: BackupData): Promise<void> {
-  // Define headers for each sheet
+  // Define headers for each sheet (only core tables)
   const sheetsConfig = [
     {
       name: 'accounts',
-      headers: ['id', 'name', 'type', 'balance', 'thresholdValue', 'color', 'icon', 'groupId', 'isPerson', 'createdAt', 'updatedAt'],
+      headers: ['id', 'name', 'type', 'balance', 'thresholdValue', 'color', 'icon', 'group', 'includeInNetWorth', 'isLiability', 'createdAt', 'updatedAt'],
       data: data.accounts,
     },
     {
@@ -39,27 +37,26 @@ export async function backupToSheets(data: BackupData): Promise<void> {
     },
     {
       name: 'transactions',
-      headers: ['id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt'],
+      headers: ['id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'notes', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt'],
       data: data.transactions,
-    },
-    {
-      name: 'accountTypes',
-      headers: ['id', 'name', 'icon', 'isLiability', 'sortOrder'],
-      data: data.accountTypes || [],
-    },
-    {
-      name: 'accountGroups',
-      headers: ['id', 'name', 'sortOrder'],
-      data: data.accountGroups || [],
     },
   ];
 
   for (const config of sheetsConfig) {
-    // Clear existing data (keep header)
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${config.name}!A2:Z`,
-    });
+    try {
+      // Clear existing data (keep header)
+      await sheets.spreadsheets.values.clear({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${config.name}!A2:Z`,
+      });
+    } catch (error: any) {
+      // If sheet doesn't exist, try to create it or skip
+      if (error.message?.includes('Unable to parse range')) {
+        console.warn(`Sheet "${config.name}" not found, skipping clear operation`);
+      } else {
+        throw error;
+      }
+    }
 
     if (config.data.length === 0) continue;
 
@@ -73,15 +70,22 @@ export async function backupToSheets(data: BackupData): Promise<void> {
       })
     );
 
-    // Batch write all rows at once
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${config.name}!A2`,
-      valueInputOption: 'RAW',
-      requestBody: {
-        values: rows,
-      },
-    });
+    try {
+      // Batch write all rows at once
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${config.name}!A2`,
+        valueInputOption: 'RAW',
+        requestBody: {
+          values: rows,
+        },
+      });
+    } catch (error: any) {
+      if (error.message?.includes('Unable to parse range')) {
+        throw new Error(`Sheet "${config.name}" does not exist in the Google Spreadsheet. Please create sheets named: accounts, categories, transactions`);
+      }
+      throw error;
+    }
   }
 }
 
@@ -91,50 +95,58 @@ export async function backupToSheets(data: BackupData): Promise<void> {
 
 export async function restoreFromSheets(): Promise<BackupData> {
   const sheetsConfig = [
-    { name: 'accounts', headers: ['id', 'name', 'type', 'balance', 'thresholdValue', 'color', 'icon', 'groupId', 'isPerson', 'createdAt', 'updatedAt'] },
+    { name: 'accounts', headers: ['id', 'name', 'type', 'balance', 'thresholdValue', 'color', 'icon', 'group', 'includeInNetWorth', 'isLiability', 'createdAt', 'updatedAt'] },
     { name: 'categories', headers: ['id', 'name', 'type', 'parentId', 'icon', 'color', 'sortOrder', 'createdAt', 'updatedAt'] },
-    { name: 'transactions', headers: ['id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt'] },
-    { name: 'accountTypes', headers: ['id', 'name', 'icon', 'isLiability', 'sortOrder'] },
-    { name: 'accountGroups', headers: ['id', 'name', 'sortOrder'] },
+    { name: 'transactions', headers: ['id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'notes', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt'] },
   ];
 
   const result: BackupData = {
     accounts: [],
     categories: [],
     transactions: [],
-    accountTypes: [],
-    accountGroups: [],
   };
 
   for (const config of sheetsConfig) {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${config.name}!A2:Z`,
-    });
-
-    const rows = response.data.values || [];
-    
-    const data = rows.map(row => {
-      const obj: Record<string, any> = {};
-      config.headers.forEach((header, index) => {
-        let value = row[index];
-        
-        // Parse types
-        if (value === 'TRUE') value = true;
-        else if (value === 'FALSE') value = false;
-        else if (header === 'balance' || header === 'amount' || header === 'thresholdValue' || header === 'sortOrder') {
-          value = parseFloat(value) || 0;
-        }
-        else if (header === 'id' || header.endsWith('Id')) {
-          value = value ? parseInt(value) : undefined;
-        }
-        
-        obj[header] = value || undefined;
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${config.name}!A2:Z`,
       });
-      return obj;
-    });
 
-    (result as any)[config.name] = data;
+      const rows = response.data.values || [];
+
+      const data = rows.map(row => {
+        const obj: Record<string, any> = {};
+        config.headers.forEach((header, index) => {
+          let value = row[index];
+
+          // Parse types
+          if (value === 'TRUE') value = true;
+          else if (value === 'FALSE') value = false;
+          else if (header === 'balance' || header === 'amount' || header === 'thresholdValue' || header === 'sortOrder') {
+            value = parseFloat(value) || 0;
+          }
+          else if (header === 'id' || header.endsWith('Id')) {
+            value = value ? parseInt(value) : undefined;
+          }
+          else if (header === 'includeInNetWorth' || header === 'isLiability') {
+            value = value === 'TRUE' || value === true;
+          }
+
+          obj[header] = value || undefined;
+        });
+        return obj;
+      });
+
+      (result as any)[config.name] = data;
+    } catch (error: any) {
+      if (error.message?.includes('Unable to parse range')) {
+        console.warn(`Sheet "${config.name}" not found, using empty array`);
+        (result as any)[config.name] = [];
+      } else {
+        throw error;
+      }
+    }
   }
 
   return result;
