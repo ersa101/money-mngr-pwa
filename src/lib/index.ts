@@ -1,5 +1,5 @@
-// Re-export db module for type resolution
-export * from './db'
+// Re-export modules
+export * from './userDb'
 export * from './csvImport'
 export * from './magicBoxParser'
 export * from './actionLogger'

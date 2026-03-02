@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Account } from '@/lib/db'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useDb } from '@/contexts/DbContext'
+import type { Account } from '@/types/database'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Button } from './ui/button'
 import {
   Building2,
@@ -39,7 +41,31 @@ export function AccountModal({
   initialData,
   loading = false,
 }: AccountModalProps) {
+  const db = useDb()
   const [formData, setFormData] = useState<Omit<Account, 'id'>>(getDefaultFormData())
+
+  // Fetch all accounts to get existing groups
+  const allAccounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || []
+
+  // Extract unique existing groups
+  const existingGroups = useMemo(() => {
+    const groups = new Set<string>()
+    allAccounts.forEach((a) => {
+      if (a.group) groups.add(a.group)
+    })
+    return Array.from(groups).sort()
+  }, [allAccounts])
+
+  // Group autocomplete state
+  const [showGroupSuggestions, setShowGroupSuggestions] = useState(false)
+  const groupInputRef = useRef<HTMLInputElement>(null)
+
+  const filteredGroups = useMemo(() => {
+    if (!formData.group?.trim()) return existingGroups
+    return existingGroups.filter((g) =>
+      g.toLowerCase().includes((formData.group || '').toLowerCase())
+    )
+  }, [existingGroups, formData.group])
 
   // Update form data when initialData changes or modal opens
   useEffect(() => {
@@ -195,18 +221,49 @@ export function AccountModal({
             </p>
           </div>
 
-          {/* Group (optional) */}
-          <div>
+          {/* Group (optional) - With Autocomplete */}
+          <div className="relative">
             <label className="block text-sm font-medium mb-1">Group</label>
             <input
+              ref={groupInputRef}
               type="text"
               value={formData.group || ''}
-              onChange={(e) =>
+              onChange={(e) => {
                 setFormData({ ...formData, group: e.target.value })
-              }
+                setShowGroupSuggestions(true)
+              }}
+              onFocus={() => setShowGroupSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowGroupSuggestions(false), 200)}
               className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="e.g., Primary Banking, Digital Wallets"
+              autoComplete="off"
             />
+
+            {/* Autocomplete Dropdown */}
+            {showGroupSuggestions && filteredGroups.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-md shadow-lg max-h-40 overflow-y-auto">
+                {filteredGroups.map((group) => (
+                  <button
+                    key={group}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setFormData({ ...formData, group })
+                      setShowGroupSuggestions(false)
+                    }}
+                    className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted transition-colors"
+                  >
+                    {group}
+                  </button>
+                ))}
+                {formData.group && !existingGroups.includes(formData.group) && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                    Create new group: "{formData.group}"
+                  </div>
+                )}
+              </div>
+            )}
+
             <p className="text-xs text-muted-foreground mt-1">
               Optional: Group accounts together on the accounts page
             </p>

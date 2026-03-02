@@ -2,11 +2,11 @@
 
 import { useSnapshots } from '@/hooks/useSnapshots';
 import { Button } from '@/components/ui/button';
-import { Loader2, Trash2, Download, Upload, RefreshCw } from 'lucide-react';
+import { Loader2, Trash2, Download, Upload, RefreshCw, AlertCircle } from 'lucide-react';
 import { formatDateTime } from '@/lib/date-utils';
 
 export function SnapshotSection() {
-  const { snapshots, isLoading, createSnapshot, restoreSnapshot, deleteSnapshot, refresh } = useSnapshots();
+  const { snapshots, isLoading, apiNotEnabled, createSnapshot, restoreSnapshot, deleteSnapshot, refresh } = useSnapshots();
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-6">
@@ -17,7 +17,7 @@ export function SnapshotSection() {
             Create point-in-time JSON snapshots of your entire database in Google Drive.
           </p>
         </div>
-        <Button onClick={createSnapshot} disabled={isLoading}>
+        <Button onClick={createSnapshot} disabled={isLoading || apiNotEnabled}>
           {isLoading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -27,6 +27,23 @@ export function SnapshotSection() {
         </Button>
       </div>
 
+      {/* API Not Enabled Notice */}
+      {apiNotEnabled && (
+        <div className="mt-4 p-4 rounded-lg bg-amber-950/30 border border-amber-700/50">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm text-amber-200 font-medium">Google Drive API not configured</p>
+              <p className="text-sm text-slate-400 mt-1">
+                To use Drive Snapshots, enable the Google Drive API in your Google Cloud Console project.
+                This feature is optional - your local data is always saved in your browser.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!apiNotEnabled && (
       <div className="mt-6">
         <div className="flex justify-between items-center mb-2">
             <h4 className="text-lg font-medium text-slate-300">Available Snapshots</h4>
@@ -75,6 +92,7 @@ export function SnapshotSection() {
           </ul>
         )}
       </div>
+      )}
     </div>
   );
 }

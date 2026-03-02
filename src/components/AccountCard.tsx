@@ -1,6 +1,6 @@
 'use client'
 
-import { Account } from '@/lib/db'
+import type { Account } from '@/types/database'
 import { Landmark, Wallet, TrendingUp, Zap, Trash2, Edit2, User } from 'lucide-react'
 import { Button } from './ui/button'
 import { useThreshold } from '../hooks/useThreshold'

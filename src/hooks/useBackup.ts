@@ -1,11 +1,12 @@
 // src/hooks/useBackup.ts
 import { useState } from 'react';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import toast from 'react-hot-toast';
 
 export function useBackup() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const db = useDb();
 
   const backupNow = async () => {
     setIsBackingUp(true);
@@ -26,7 +27,7 @@ export function useBackup() {
       if (!response.ok) {
         throw new Error(result.error || 'Backup failed');
       }
-      
+
       localStorage.setItem('lastBackupAt', new Date().toISOString());
       toast.dismiss();
       toast.success('Backup completed successfully!');
@@ -59,11 +60,17 @@ export function useBackup() {
         await db.categories.clear();
         await db.transactions.clear();
 
-        await db.accounts.bulkAdd(result.data.accounts);
-        await db.categories.bulkAdd(result.data.categories);
-        await db.transactions.bulkAdd(result.data.transactions);
+        if (result.data?.accounts?.length) {
+          await db.accounts.bulkAdd(result.data.accounts);
+        }
+        if (result.data?.categories?.length) {
+          await db.categories.bulkAdd(result.data.categories);
+        }
+        if (result.data?.transactions?.length) {
+          await db.transactions.bulkAdd(result.data.transactions);
+        }
       });
-      
+
       toast.dismiss();
       toast.success('Data restored successfully!');
     } catch (error: any) {

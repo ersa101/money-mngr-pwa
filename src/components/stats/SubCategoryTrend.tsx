@@ -1,7 +1,8 @@
 'use client'
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Transaction } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
+import type { Transaction, Category } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
   LineChart,
@@ -33,12 +34,28 @@ export function SubCategoryTrend({
   dateRange,
   selectedMainCategory,
 }: SubCategoryTrendProps) {
-  const [selectedSubCategories, setSelectedSubCategories] = useState<Set<string>>(
+  const [selectedSubCategories, setSelectedSubCategories] = useState<Set<number>>(
     new Set()
   )
+  const db = useDb()
 
   // Fetch all transactions and filter by date range
-  const allTransactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
+
+  // Fetch categories
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+
+  // Build category lookup map
+  const categoryMap = useMemo(() => {
+    if (!categories) return new Map<number, Category>()
+    return new Map(categories.map(c => [c.id!, c]))
+  }, [categories])
+
+  // Get subcategories (categories with parentId)
+  const subCategoriesList = useMemo(() => {
+    if (!categories) return []
+    return categories.filter(c => c.parentId !== undefined && c.parentId !== null)
+  }, [categories])
 
   // Filter transactions by date range
   const transactions = useMemo(() => {
@@ -54,9 +71,6 @@ export function SubCategoryTrend({
     })
   }, [allTransactions, dateRange])
 
-  // Fetch categories
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
-
   // Get months in range
   const months = useMemo(() => {
     const m = []
@@ -68,21 +82,26 @@ export function SubCategoryTrend({
     return m
   }, [dateRange])
 
-  // Get unique sub-categories from transactions
-  const subCategories = useMemo(() => {
-    if (!transactions) return []
-    const subCatSet = new Set<string>()
+  // Get unique sub-categories from transactions that have subCategoryId
+  const subCategoriesWithData = useMemo(() => {
+    if (!transactions || !categories) return []
+
+    const subCatIds = new Set<number>()
     transactions.forEach((tx: Transaction) => {
-      if (tx.subCategory && tx.transactionType === 'EXPENSE') {
-        subCatSet.add(tx.subCategory)
+      if (tx.subCategoryId && tx.transactionType === 'EXPENSE') {
+        subCatIds.add(tx.subCategoryId)
       }
     })
-    return Array.from(subCatSet).sort()
-  }, [transactions])
+
+    // Return categories that have transaction data
+    return subCategoriesList
+      .filter(c => c.id && subCatIds.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [transactions, categories, subCategoriesList])
 
   // Calculate monthly trend data
   const trendData = useMemo(() => {
-    if (!transactions) return []
+    if (!transactions || !categories) return []
 
     const data: any[] = months.map((month) => ({
       month: month.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
@@ -90,7 +109,7 @@ export function SubCategoryTrend({
     }))
 
     // For each sub-category, calculate monthly values
-    subCategories.forEach((subCat) => {
+    subCategoriesWithData.forEach((subCat) => {
       const monthlyValues = new Map<string, number>()
 
       data.forEach((d) => {
@@ -105,7 +124,7 @@ export function SubCategoryTrend({
             const date = tx.date instanceof Date ? tx.date : new Date(tx.date)
             if (isNaN(date.getTime())) return false
             return (
-              tx.subCategory === subCat &&
+              tx.subCategoryId === subCat.id &&
               date.getMonth() === month.getMonth() &&
               date.getFullYear() === month.getFullYear()
             )
@@ -115,26 +134,26 @@ export function SubCategoryTrend({
         monthlyValues.set(monthKey, amount)
       })
 
-      // Add to data
+      // Add to data using category ID as key
       data.forEach((d) => {
         const monthKey = d.monthDate.toLocaleDateString('en-IN', {
           month: 'short',
           year: '2-digit',
         })
         const value = monthlyValues.get(monthKey) || 0
-        d[`subcat-${subCat}`] = parseFloat(value.toFixed(2))
+        d[`subcat-${subCat.id}`] = parseFloat(value.toFixed(2))
       })
     })
 
     return data
-  }, [transactions, months, subCategories])
+  }, [transactions, categories, months, subCategoriesWithData])
 
-  // Calculate 12-month average
+  // Calculate average line
   const averageLine = useMemo(() => {
     if (!transactions || selectedSubCategories.size === 0) return null
 
     const selectedTxs = transactions.filter((tx: Transaction) =>
-      selectedSubCategories.has(tx.subCategory || '')
+      tx.subCategoryId && selectedSubCategories.has(tx.subCategoryId)
     )
 
     if (selectedTxs.length === 0) return null
@@ -150,24 +169,27 @@ export function SubCategoryTrend({
     return total / Math.max(uniqueMonths, 1)
   }, [transactions, selectedSubCategories])
 
-  if (!transactions) {
+  if (!transactions || !categories) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
   }
 
-  if (subCategories.length === 0) {
+  if (subCategoriesWithData.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        No sub-categories available in this period
+      <div className="bg-card rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold mb-4">Sub-Category Trends</h3>
+        <div className="text-center py-8 text-muted-foreground">
+          No sub-categories available in this period
+        </div>
       </div>
     )
   }
 
-  const toggleSubCategory = (name: string) => {
+  const toggleSubCategory = (id: number) => {
     const newSet = new Set(selectedSubCategories)
-    if (newSet.has(name)) {
-      newSet.delete(name)
+    if (newSet.has(id)) {
+      newSet.delete(id)
     } else {
-      newSet.add(name)
+      newSet.add(id)
     }
     setSelectedSubCategories(newSet)
   }
@@ -179,25 +201,25 @@ export function SubCategoryTrend({
 
         {/* Sub-Category Selector */}
         <div className="flex flex-wrap gap-2">
-          {subCategories.map((cat, idx) => (
+          {subCategoriesWithData.map((cat, idx) => (
             <button
-              key={cat}
-              onClick={() => toggleSubCategory(cat)}
+              key={cat.id}
+              onClick={() => toggleSubCategory(cat.id!)}
               className={`px-3 py-1 rounded text-sm font-medium transition border ${
-                selectedSubCategories.has(cat)
-                  ? 'bg-primary text-primary-foreground border-primary'
+                selectedSubCategories.has(cat.id!)
+                  ? 'text-white border-transparent'
                   : 'border-border hover:border-primary/50 text-foreground'
               }`}
               style={{
-                borderColor: selectedSubCategories.has(cat)
+                borderColor: selectedSubCategories.has(cat.id!)
                   ? CATEGORY_COLORS[idx % CATEGORY_COLORS.length]
                   : undefined,
-                backgroundColor: selectedSubCategories.has(cat)
+                backgroundColor: selectedSubCategories.has(cat.id!)
                   ? CATEGORY_COLORS[idx % CATEGORY_COLORS.length]
                   : 'transparent',
               }}
             >
-              {cat}
+              {cat.icon || '📁'} {cat.name}
             </button>
           ))}
         </div>
@@ -225,27 +247,29 @@ export function SubCategoryTrend({
             <Legend />
 
             {/* Render lines for selected sub-categories */}
-            {Array.from(selectedSubCategories).map((subCat, idx) => (
-              <Line
-                key={subCat}
-                type="monotone"
-                dataKey={`subcat-${subCat}`}
-                stroke={CATEGORY_COLORS[idx % CATEGORY_COLORS.length]}
-                name={subCat}
-                strokeWidth={2}
-                dot={{ r: 4 }}
-                activeDot={{ r: 6 }}
-              />
-            ))}
+            {subCategoriesWithData
+              .filter(c => c.id && selectedSubCategories.has(c.id))
+              .map((subCat, idx) => (
+                <Line
+                  key={subCat.id}
+                  type="monotone"
+                  dataKey={`subcat-${subCat.id}`}
+                  stroke={CATEGORY_COLORS[idx % CATEGORY_COLORS.length]}
+                  name={subCat.name}
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              ))}
 
-            {/* 12-month average line */}
+            {/* Average line */}
             {averageLine && (
               <ReferenceLine
                 y={averageLine}
                 stroke="#999"
                 strokeDasharray="5 5"
                 label={{
-                  value: `12mo Avg: ₹${averageLine.toLocaleString(undefined, {
+                  value: `Avg: ₹${averageLine.toLocaleString(undefined, {
                     maximumFractionDigits: 0,
                   })}`,
                   position: 'right',
@@ -260,7 +284,7 @@ export function SubCategoryTrend({
 
       {selectedSubCategories.size === 0 && (
         <div className="text-center py-8 text-muted-foreground">
-          Click a category to view trends
+          Click a sub-category above to view its trend
         </div>
       )}
     </div>

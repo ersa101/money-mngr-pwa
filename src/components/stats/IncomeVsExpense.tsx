@@ -1,7 +1,8 @@
 'use client'
 
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type Transaction } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
+import type { Transaction } from '@/types/database';
 import { useMemo } from 'react'
 import {
   BarChart,
@@ -19,11 +20,13 @@ interface IncomeVsExpenseProps {
 }
 
 export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
+  const db = useDb()
+
   // Fetch all transactions and filter by date range
-  const allTransactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
 
   // Filter transactions by date range
   const transactions = useMemo(() => {

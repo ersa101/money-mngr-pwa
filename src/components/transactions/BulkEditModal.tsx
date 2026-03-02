@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,8 +34,9 @@ export function BulkEditModal({
   transactions,
   onSuccess,
 }: BulkEditModalProps) {
-  const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
-  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const db = useDb();
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
 
   const [categoryId, setCategoryId] = useState<string>('__keep__');
   const [fromAccountId, setFromAccountId] = useState<string>('__keep__');
@@ -46,8 +47,13 @@ export function BulkEditModal({
   const incomeTransactions = transactions.filter(t => t.transactionType === 'INCOME');
 
   const handleUpdate = async () => {
+    if (!db) {
+      toast.error('Database not available');
+      return;
+    }
+
     const updates: Partial<Transaction> = {};
-    
+
     if (categoryId !== '__keep__') {
       updates.categoryId = parseInt(categoryId);
     }

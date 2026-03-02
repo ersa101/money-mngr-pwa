@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Account } from '@/lib/db'
+import { useDb } from '@/contexts/DbContext'
+import type { Account } from '@/types/database'
 import { useAccount } from '@/hooks/useAccount'
 import { AccountCard } from '@/components/AccountCard'
 import { AccountHeader } from '@/components/AccountHeader'
@@ -17,16 +18,18 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   SAVINGS: 'Savings Accounts',
   CASH: 'Cash',
   WALLET: 'Digital Wallets',
-  CREDIT: 'Credit Cards',
+  CREDIT_CARD: 'Credit Cards',
   LOAN: 'Loans',
   INVESTMENT: 'Investments',
+  PERSON: 'People (Loans & Debts)',
   OTHER: 'Other',
 }
 
 // Order for account types
-const ACCOUNT_TYPE_ORDER = ['BANK', 'SAVINGS', 'CASH', 'WALLET', 'CREDIT', 'LOAN', 'INVESTMENT', 'OTHER']
+const ACCOUNT_TYPE_ORDER = ['BANK', 'SAVINGS', 'CASH', 'WALLET', 'CREDIT_CARD', 'LOAN', 'INVESTMENT', 'PERSON', 'OTHER']
 
 export default function AccountsPage() {
+  const db = useDb()
   const [modalOpen, setModalOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [editingAccount, setEditingAccount] = useState<Account | null>(null)
@@ -36,7 +39,7 @@ export default function AccountsPage() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['type-BANK']))
 
   // Live query to fetch all accounts
-  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
 
   // Group accounts by type first, then by custom group
   // Structure: Map<type, Map<group, Account[]>>

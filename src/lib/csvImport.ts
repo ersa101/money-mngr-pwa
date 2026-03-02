@@ -1,6 +1,6 @@
 'use client'
 
-import { db } from './db'
+import type { MySubClassedDB } from './db'
 
 export interface CSVRow {
   date?: string
@@ -13,20 +13,78 @@ export interface CSVRow {
   type?: string // 'Expense', 'Income', 'Transfer-Out', 'Transfer-In'
 }
 
+// Cache maps for async category/account creation
+const categoryCache = new Map<string, number>()
+const accountCache = new Map<string, number>()
+
+// Helper to get or create a category with proper awaiting
+async function getOrCreateCategory(
+  db: MySubClassedDB,
+  name: string,
+  type: 'EXPENSE' | 'INCOME',
+  parentId?: number
+): Promise<number> {
+  const cacheKey = `${type}:${name}:${parentId || 0}`
+
+  // Check cache first
+  if (categoryCache.has(cacheKey)) {
+    const cachedId = categoryCache.get(cacheKey)!
+    if (cachedId > 0) return cachedId
+  }
+
+  // Check database
+  let existing = await db.categories
+    .where('name')
+    .equalsIgnoreCase(name)
+    .filter(c => c && c.type === type && (c.parentId === parentId || (!c.parentId && !parentId)))
+    .first()
+
+  if (existing?.id) {
+    categoryCache.set(cacheKey, existing.id)
+    return existing.id
+  }
+
+  // Create new category - MUST AWAIT!
+  const newId = await db.categories.add({
+    name: name.trim(),
+    type,
+    parentId: parentId || undefined,
+    icon: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  })
+
+  // Cache the ACTUAL ID, not a placeholder
+  categoryCache.set(cacheKey, newId)
+  return newId
+}
+
+// Helper to get or create subcategory
+async function getOrCreateSubCategory(
+  db: MySubClassedDB,
+  name: string,
+  parentName: string,
+  type: 'EXPENSE' | 'INCOME'
+): Promise<{ categoryId: number; subCategoryId: number }> {
+  const parentId = await getOrCreateCategory(db, parentName, type)
+  const subCategoryId = await getOrCreateCategory(db, name, type, parentId)
+  return { categoryId: parentId, subCategoryId }
+}
+
 export async function parseCSV(file: File): Promise<CSVRow[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
         const csv = event.target?.result as string
-        
+
         // Robust CSV parser handling quoted fields and embedded newlines
         const parseCSVText = (text: string): string[][] => {
           const rows: string[][] = []
           let field = ''
           let row: string[] = []
           let inQuotes = false
-          
+
           for (let i = 0; i < text.length; i++) {
             const ch = text[i]
             const next = text[i + 1]
@@ -69,7 +127,7 @@ export async function parseCSV(file: File): Promise<CSVRow[]> {
 
         const lines = parseCSVText(csv).filter((r) => r.length > 0)
         if (lines.length === 0) return resolve([])
-        
+
         // Normalize headers and map them to known keys
         const rawHeaders = lines[0]
         const normalize = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase()
@@ -152,13 +210,17 @@ export async function parseCSV(file: File): Promise<CSVRow[]> {
 }
 
 export async function importTransactionsFromCSV(
+  db: MySubClassedDB,
   rows: CSVRow[],
   onProgress?: (current: number, total: number) => void
 ) {
   const errors: string[] = []
 
+  // Clear caches at start of each import
+  categoryCache.clear()
+  accountCache.clear()
+
   // Total steps: 10% for setup, 10% for accounts/categories, 70% for processing rows, 10% for saving
-  const totalSteps = rows.length + Math.ceil(rows.length * 0.3) // Add 30% for overhead phases
   let currentStep = 0
 
   const reportProgress = () => {
@@ -170,10 +232,6 @@ export async function importTransactionsFromCSV(
   // Phase 1: Pre-process all rows and collect unique accounts/categories
   reportProgress()
 
-  // Cache for accounts and categories (name -> id)
-  const accountCache = new Map<string, number>()
-  const categoryCache = new Map<string, number>()
-
   // Loading existing data (5% progress)
   const existingAccounts = await db.accounts.toArray()
   currentStep = Math.ceil(rows.length * 0.02)
@@ -183,17 +241,31 @@ export async function importTransactionsFromCSV(
   currentStep = Math.ceil(rows.length * 0.05)
   reportProgress()
 
-  existingAccounts.forEach(a => accountCache.set(a.name, a.id!))
-  existingCategories.forEach(c => categoryCache.set(c.name, c.id!))
+  // Populate caches with null safety
+  for (const a of existingAccounts) {
+    if (a && a.name && a.id) {
+      accountCache.set(a.name, a.id)
+    }
+  }
 
-  // Collect new accounts and categories to create
+  // Cache key must match format used in getOrCreateCategory: `${type}:${name}:${parentId || 0}`
+  for (const c of existingCategories) {
+    if (c && c.name && c.type && c.id) {
+      const cacheKey = `${c.type}:${c.name}:${c.parentId || 0}`
+      categoryCache.set(cacheKey, c.id)
+    }
+  }
+
+  // Collect new accounts to create
   const newAccounts: Array<{ name: string; type: string; balance: number; thresholdValue: number; color: string; icon: string }> = []
-  const newCategories: Array<{ name: string; parentId?: number; type: string; icon: string }> = []
   const hasLetters = (s?: string) => !!(s && /[A-Za-z]/.test(s))
 
-  // Phase 2: First pass - identify new accounts and categories (5-10% progress)
+  // Phase 2: First pass - identify new accounts (5-10% progress)
+  // Note: Categories are now created inline during Phase 5 using async getOrCreateCategory
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
+    if (!row) continue
+
     if (row.account && hasLetters(row.account) && !accountCache.has(row.account)) {
       accountCache.set(row.account, -1) // placeholder
       newAccounts.push({
@@ -201,15 +273,15 @@ export async function importTransactionsFromCSV(
         type: 'BANK',
         balance: 0,
         thresholdValue: 0,
-        color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+        color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
         icon: 'bank',
       })
     }
 
     const typeStr = (row.type || '').toLowerCase()
     const isTransfer = typeStr.includes('transfer')
-    const isIncome = typeStr.includes('income')
 
+    // For transfers, category field is used as destination account
     if (isTransfer && row.category && hasLetters(row.category) && !accountCache.has(row.category)) {
       accountCache.set(row.category, -1)
       newAccounts.push({
@@ -217,15 +289,8 @@ export async function importTransactionsFromCSV(
         type: 'BANK',
         balance: 0,
         thresholdValue: 0,
-        color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+        color: '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0'),
         icon: 'bank',
-      })
-    } else if (!isTransfer && row.category && hasLetters(row.category) && !categoryCache.has(row.category)) {
-      categoryCache.set(row.category, -1)
-      newCategories.push({
-        name: row.category,
-        type: isIncome ? 'INCOME' : 'EXPENSE',
-        icon: 'tag',
       })
     }
 
@@ -244,16 +309,7 @@ export async function importTransactionsFromCSV(
     const acc = newAccounts[i]
     const id = await db.accounts.add(acc as any)
     accountCache.set(acc.name, id)
-    currentStep = Math.ceil(rows.length * 0.10) + Math.ceil((i / Math.max(newAccounts.length, 1)) * rows.length * 0.025)
-    reportProgress()
-  }
-
-  // Phase 4: Create categories one by one (15-20% progress)
-  for (let i = 0; i < newCategories.length; i++) {
-    const cat = newCategories[i]
-    const id = await db.categories.add(cat as any)
-    categoryCache.set(cat.name, id)
-    currentStep = Math.ceil(rows.length * 0.125) + Math.ceil((i / Math.max(newCategories.length, 1)) * rows.length * 0.025)
+    currentStep = Math.ceil(rows.length * 0.10) + Math.ceil((i / Math.max(newAccounts.length, 1)) * rows.length * 0.05)
     reportProgress()
   }
 
@@ -266,6 +322,7 @@ export async function importTransactionsFromCSV(
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex]
+    if (!row) continue
 
     try {
       // Parse amount - skip zero amounts silently (common in CSV exports)
@@ -339,13 +396,25 @@ export async function importTransactionsFromCSV(
       }
 
       let categoryId: number | undefined
+      let subCategoryId: number | undefined
       let toAccountId: number | undefined
       const isTransfer = transactionType === 'TRANSFER'
 
       if (isTransfer && row.category && hasLetters(row.category)) {
         toAccountId = accountCache.get(row.category)
       } else if (!isTransfer && row.category && hasLetters(row.category)) {
-        categoryId = categoryCache.get(row.category)
+        const catType = transactionType === 'INCOME' ? 'INCOME' : 'EXPENSE'
+
+        // Use async getOrCreateCategory with proper awaiting
+        if (row.subcategory && hasLetters(row.subcategory)) {
+          // Has sub-category: create both parent and child
+          const result = await getOrCreateSubCategory(db, row.subcategory, row.category, catType)
+          categoryId = result.categoryId
+          subCategoryId = result.subCategoryId
+        } else {
+          // No sub-category
+          categoryId = await getOrCreateCategory(db, row.category, catType)
+        }
       }
 
       const roundedAmount = Math.round(amount * 100) / 100
@@ -354,21 +423,19 @@ export async function importTransactionsFromCSV(
         date: date.toISOString(),
         amount: roundedAmount,
         fromAccountId,
-        toCategoryId: isTransfer ? undefined : categoryId,
+        categoryId: isTransfer ? undefined : categoryId,
+        subCategoryId: isTransfer ? undefined : subCategoryId,
         toAccountId: isTransfer ? toAccountId : undefined,
         description: row.description || row.note || row.category || 'Imported',
-        isTransfer,
         transactionType,
-        category: row.category,
-        subCategory: row.subcategory,
-        note: row.note,
-        csvAccount: row.account,
-        csvCategory: row.category,
-        csvSubcategory: row.subcategory,
-        csvIncomeExpense: row.type,
-        csvDescription: row.description,
-        csvCurrency: 'INR',
-        importedAt: new Date().toISOString(),
+        status: 'CONFIRMED',
+        source: 'CSV_IMPORT',
+        currency: 'INR',
+        // Store original CSV values as fallback for category resolution
+        csvCategory: row.category || undefined,
+        csvSubcategory: row.subcategory || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       })
 
       // Track balance changes
@@ -420,15 +487,4 @@ export async function importTransactionsFromCSV(
   reportProgress()
 
   return { imported: transactionsToAdd.length, errors }
-}
-
-// Convenience: import CSV by fetching from a public URL (e.g. '/sample-transactions.csv')
-export async function importFromUrl(url: string) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Failed to fetch CSV from ${url}: ${res.statusText}`)
-  const text = await res.text()
-  // create a File so we can reuse parseCSV
-  const file = new File([text], 'import.csv', { type: 'text/csv' })
-  const rows = await parseCSV(file)
-  return importTransactionsFromCSV(rows)
 }

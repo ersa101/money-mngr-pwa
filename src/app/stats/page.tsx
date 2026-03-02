@@ -6,9 +6,7 @@ import { SubCategoryTrend } from '@/components/stats/SubCategoryTrend'
 import { IncomeVsExpense } from '@/components/stats/IncomeVsExpense'
 import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
 import { NetWorth } from '@/components/stats/NetWorth'
-import { Button } from '@/components/ui/button'
-import { BarChart3, Calendar, X } from 'lucide-react'
-import seedComplexTestData from '@/lib/seedTestData'
+import { BarChart3, Calendar } from 'lucide-react'
 import { useState } from 'react'
 
 export default function StatsPage() {
@@ -22,7 +20,6 @@ export default function StatsPage() {
   } = useDateFilter()
 
   const [showCustomRange, setShowCustomRange] = useState(false)
-  const [seeding, setSeeding] = useState(false)
 
   return (
     <div className="min-h-screen bg-background pb-24">
@@ -119,30 +116,10 @@ export default function StatsPage() {
             </button>
 
             {/* Current Range Display */}
-            <div className="ml-auto flex items-center gap-3">
+            <div className="ml-auto">
               <div className="text-sm text-muted-foreground">
                 {formatDate(dateRange.startDate)} → {formatDate(dateRange.endDate)}
               </div>
-
-              <Button
-                onClick={async () => {
-                  if (seeding) return
-                  setSeeding(true)
-                  try {
-                    await seedComplexTestData()
-                    window.alert('Seeded complex test data successfully.')
-                  } catch (err) {
-                    // eslint-disable-next-line no-console
-                    console.error(err)
-                    window.alert('Failed to seed test data. See console for details.')
-                  } finally {
-                    setSeeding(false)
-                  }
-                }}
-                className="px-3 py-1 text-sm"
-              >
-                {seeding ? 'Seeding...' : 'Seed Test Data'}
-              </Button>
             </div>
           </div>
 

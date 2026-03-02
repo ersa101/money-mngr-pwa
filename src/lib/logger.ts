@@ -1,7 +1,5 @@
 'use client'
 
-import { db } from './db'
-
 // Error log entry interface
 export interface ErrorLogEntry {
   id?: number

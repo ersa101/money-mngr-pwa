@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Zap, Check, X, ChevronDown, MessageSquare, Clock, AlertCircle, Sparkles, Loader2 } from 'lucide-react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/lib/db'
+import { useDb } from '@/contexts/DbContext'
 import { parseMagicInput, type MagicBoxParseResult, type MatchCandidate } from '@/lib/magicBoxParser'
 import { parseSMS, shouldAutoSubmit, type ParsedSMS } from '@/lib/smsParser'
 import { llmService, type LLMResponse, type TransactionSuggestion } from '@/lib/llmService';
@@ -39,12 +39,14 @@ export function MagicBox({ onSuccess }: MagicBoxProps) {
   const [overrideCategoryId, setOverrideCategoryId] = useState<number | null>(null)
   const [overrideSubCategory, setOverrideSubCategory] = useState<string | null>(null)
 
-  const accounts = useLiveQuery(() => db.accounts.toArray())
-  const categories = useLiveQuery(() => db.categories.toArray())
+  const db = useDb()
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
   const recentTransactions = useLiveQuery(async () => {
+    if (!db) return []
     const all = await db.transactions.toArray()
     return all.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 50)
-  })
+  }, [db])
   const { createTransaction, loading } = useTransaction()
 
   // Cleanup countdown on unmount

@@ -1,6 +1,6 @@
 'use client'
 
-import { Account } from '@/lib/db'
+import type { Account } from '@/types/database'
 import { Button } from './ui/button'
 import { AlertCircle, X } from 'lucide-react'
 

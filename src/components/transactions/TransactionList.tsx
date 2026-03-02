@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
+import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
 import { TransactionCard } from '../TransactionCard';
 import { BulkEditModal } from './BulkEditModal';
@@ -23,13 +23,14 @@ interface TransactionListProps {
   onDelete: (transaction: Transaction) => void;
 }
 
-export function TransactionList({ 
-  transactions, 
-  onEdit, 
-  onDelete 
+export function TransactionList({
+  transactions,
+  onEdit,
+  onDelete
 }: TransactionListProps) {
-  const accounts = useLiveQuery(() => db.accounts.toArray()) || [];
-  const categories = useLiveQuery(() => db.categories.toArray()) || [];
+  const db = useDb()
+  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
+  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
 
   // Bulk selection state
   const [isSelectionMode, setIsSelectionMode] = useState(false);

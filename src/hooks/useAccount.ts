@@ -1,9 +1,11 @@
 import { useState, useCallback } from 'react'
-import { db, Account } from '@/lib/db'
+import { useDb } from '@/contexts/DbContext'
+import type { Account } from '@/types/database'
 
 export function useAccount() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const db = useDb()
 
   const createAccount = useCallback(async (account: Omit<Account, 'id'>) => {
     setLoading(true)
@@ -18,7 +20,7 @@ export function useAccount() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [db])
 
   const updateAccount = useCallback(async (id: number, updates: Partial<Account>) => {
     setLoading(true)
@@ -32,7 +34,7 @@ export function useAccount() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [db])
 
   const deleteAccount = useCallback(async (id: number) => {
     setLoading(true)
@@ -58,7 +60,7 @@ export function useAccount() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [db])
 
   const getAccountById = useCallback(async (id: number) => {
     try {
@@ -68,7 +70,7 @@ export function useAccount() {
       setError(errorMsg)
       throw err
     }
-  }, [])
+  }, [db])
 
   return {
     createAccount,

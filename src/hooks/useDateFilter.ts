@@ -15,34 +15,46 @@ export function useDateFilter() {
   })
 
   // Calculate date range based on period
+  // Using ROLLING periods (not calendar-based)
   const dateRange = useMemo(() => {
     const today = new Date()
     let startDate: Date
 
     switch (period) {
       case 'monthly':
+        // Rolling 1 month: current month from 1st
         startDate = new Date(today.getFullYear(), today.getMonth(), 1)
         return { startDate, endDate: today }
 
       case 'quarterly':
-        const quarter = Math.floor(today.getMonth() / 3)
-        startDate = new Date(today.getFullYear(), quarter * 3, 1)
+        // Rolling 3 months back from today
+        startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 3)
+        startDate.setDate(1) // Start from 1st of that month
         return { startDate, endDate: today }
 
       case 'semi-annual':
-        const half = today.getMonth() < 6 ? 0 : 6
-        startDate = new Date(today.getFullYear(), half, 1)
+        // Rolling 6 months back from today
+        startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 6)
+        startDate.setDate(1) // Start from 1st of that month
         return { startDate, endDate: today }
 
       case 'annual':
-        startDate = new Date(today.getFullYear(), 0, 1)
+        // Rolling 12 months back from today
+        startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 12)
+        startDate.setDate(1) // Start from 1st of that month
         return { startDate, endDate: today }
 
       case 'custom':
         return customRange
 
       default:
-        return { startDate: new Date(today.getFullYear(), 0, 1), endDate: today }
+        startDate = new Date(today)
+        startDate.setMonth(startDate.getMonth() - 12)
+        startDate.setDate(1)
+        return { startDate, endDate: today }
     }
   }, [period, customRange])
 

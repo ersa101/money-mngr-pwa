@@ -3,7 +3,8 @@ import { Inter } from "next/font/google";
 import { Navigation } from "@/components/Navigation";
 import { BottomTabNavigation } from "@/components/BottomTabNavigation";
 import { AuthProvider } from "@/components/AuthProvider";
-// import { DebugLogViewer } from "@/components/DebugLogViewer";
+import { DbProvider } from "@/contexts/DbContext";
+import { AppContent } from "@/components/AppContent";
 import "./globals.css";
 import DevInstanceCheck from '@/components/DevInstanceCheck'
 import { BackupReminderHandler } from "@/components/settings/BackupReminderHandler";
@@ -35,6 +36,11 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
+  other: {
+    'cache-control': 'no-cache, no-store, must-revalidate',
+    'pragma': 'no-cache',
+    'expires': '0',
+  },
 };
 
 export const viewport: Viewport = {
@@ -54,12 +60,16 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
-          <Toaster position="top-center" reverseOrder={false} />
-          <BackupReminderHandler />
-          <Navigation />
-          {children}
-          <BottomTabNavigation />
-          <DevInstanceCheck />
+          <DbProvider>
+            <Toaster position="top-center" reverseOrder={false} />
+            <BackupReminderHandler />
+            <Navigation />
+            <AppContent>
+              {children}
+            </AppContent>
+            <BottomTabNavigation />
+            <DevInstanceCheck />
+          </DbProvider>
         </AuthProvider>
       </body>
     </html>
