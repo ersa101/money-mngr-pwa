@@ -200,7 +200,7 @@ export async function updateEntity<T extends UserOwnedEntity>(
     syncStatus: 'pending' as const,
   }
 
-  await table.where('id').equals(id).modify(updated)
+  await table.where('id').equals(id).modify(updated as any)
 
   // Add to sync queue
   await localDb.syncQueue.add({
@@ -234,7 +234,7 @@ export async function deleteEntity<T extends UserOwnedEntity>(
       deletedAt: timestamp,
       updatedAt: timestamp,
       syncStatus: 'pending',
-    })
+    } as any)
   }
 
   // Add to sync queue

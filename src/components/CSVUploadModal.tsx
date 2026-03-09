@@ -176,16 +176,22 @@ export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
                       {result.imported} transaction{result.imported !== 1 ? 's' : ''} imported
                     </p>
                     {result.errors.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-xs font-medium text-yellow-400">{result.errors.length} error(s):</p>
-                        {result.errors.slice(0, 3).map((err, i) => (
-                          <p key={i} className="text-xs text-slate-300">
-                            • {err.substring(0, 60)}...
-                          </p>
-                        ))}
-                        {result.errors.length > 3 && (
-                          <p className="text-xs text-slate-400">+{result.errors.length - 3} more</p>
-                        )}
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-yellow-400">{result.errors.length} error(s):</p>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(result.errors.join('\n'))}
+                            className="text-xs px-2 py-0.5 bg-slate-600 hover:bg-slate-500 text-white rounded transition-colors"
+                          >
+                            Copy all errors
+                          </button>
+                        </div>
+                        <textarea
+                          readOnly
+                          value={result.errors.join('\n')}
+                          rows={Math.min(result.errors.length + 1, 6)}
+                          className="w-full text-xs text-slate-300 bg-slate-900 border border-slate-600 rounded p-2 resize-none font-mono select-all"
+                        />
                       </div>
                     )}
                   </div>

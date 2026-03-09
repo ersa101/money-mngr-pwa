@@ -57,15 +57,16 @@ export function useTransaction() {
           date: input.date.toISOString(), // Store as ISO string for CSV serialization
           amount: input.amount,
           fromAccountId: input.fromAccountId,
-          toCategoryId: input.toCategoryId,
+          categoryId: input.toCategoryId,       // renamed: toCategoryId → categoryId
           toAccountId: input.toAccountId,
           description: input.description,
-          isTransfer: input.isTransfer,
           transactionType: txType,
-          smsRaw: input.smsRaw,
-          category: input.category,
-          subCategory: input.subCategory,
-          note: input.note
+          status: (input as any).status || 'CONFIRMED', // MagicBox may pass 'PENDING'
+          source: 'MANUAL',
+          currency: 'INR',
+          csvCategory: input.category,          // renamed: category → csvCategory
+          csvSubcategory: input.subCategory,    // renamed: subCategory → csvSubcategory
+          notes: input.note,                    // renamed: note → notes
         }
 
         let txId: number | undefined

@@ -1,5 +1,6 @@
 // src/hooks/useBackup.ts
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { useDb } from '@/contexts/DbContext';
 import toast from 'react-hot-toast';
 
@@ -7,6 +8,9 @@ export function useBackup() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const db = useDb();
+  const { data: session } = useSession();
+  // Use a per-user localStorage key so the timestamp is scoped to the Google account
+  const backupTimestampKey = `lastBackupAt_${session?.user?.id || 'anonymous'}`;
 
   const backupNow = async () => {
     setIsBackingUp(true);
@@ -28,7 +32,7 @@ export function useBackup() {
         throw new Error(result.error || 'Backup failed');
       }
 
-      localStorage.setItem('lastBackupAt', new Date().toISOString());
+      localStorage.setItem(backupTimestampKey, new Date().toISOString());
       toast.dismiss();
       toast.success('Backup completed successfully!');
     } catch (error: any) {

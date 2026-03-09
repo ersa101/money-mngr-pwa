@@ -128,16 +128,31 @@ function TransactionsPage() {
   const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
   const transactions = useLiveQuery(() => db?.transactions.orderBy('date').reverse().toArray() ?? [], [db])
 
-  // Get unique categories from transactions for filter dropdown
+  // Get unique categories from transactions for filter dropdown.
+  // Scoped to the currently selected typeFilter so that when the user picks
+  // "Income" only income-category names appear, and vice-versa for Expense.
   const uniqueCategories = useMemo(() => {
     if (!transactions) return []
     const cats = new Set<string>()
     transactions.forEach(tx => {
+      // Skip transactions that don't match the active type filter
+      if (typeFilter === 'expense' && tx.transactionType !== 'EXPENSE') return
+      if (typeFilter === 'income' && tx.transactionType !== 'INCOME') return
+      if (typeFilter === 'transfer') return // transfers use accounts, not categories
+
       const category = categories?.find(c => c.id === tx.categoryId)
       if (category) cats.add(category.name)
+      // Also include csvCategory as a fallback for CSV-imported transactions
+      else if (tx.csvCategory) cats.add(tx.csvCategory)
     })
     return Array.from(cats).sort()
-  }, [transactions, categories])
+  }, [transactions, categories, typeFilter])
+
+  // Clear the category filter whenever the type changes to avoid stale selections
+  // (e.g. "Salary" from Income still showing when switching to Expense)
+  useEffect(() => {
+    setFilterCategory('')
+  }, [typeFilter])
 
   useEffect(() => {
     ActionLogger.pageView('/transactions')
@@ -166,7 +181,7 @@ function TransactionsPage() {
       if (typeFilter === 'income' && tx.transactionType !== 'INCOME') return false
       if (typeFilter === 'transfer' && tx.transactionType !== 'TRANSFER') return false
 
-      const txDate = tx.date instanceof Date ? tx.date : new Date(tx.date)
+      const txDate = new Date(tx.date)
       if (isNaN(txDate.getTime())) return false
 
       if (searchText) {

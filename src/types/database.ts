@@ -1,5 +1,15 @@
 // Based on V2 and V3 prompts
 
+export interface ThresholdWarning {
+  accountId: number
+  accountName: string
+  currentBalance: number
+  threshold: number
+  spendableAmount: number
+  status: 'SAFE' | 'WARNING' | 'CRITICAL'
+  message: string
+}
+
 export type AccountType =
   | 'BANK'
   | 'CASH'

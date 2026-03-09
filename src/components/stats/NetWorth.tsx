@@ -2,7 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   LineChart,
   Line,
@@ -36,48 +36,59 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
   }, [dateRange])
 
-  // Determine data point granularity based on period
-  // Monthly: show by month (if range spans multiple months) or by week
-  // Quarterly: show by month
-  // Semi-annual: show by month
-  // Annual: show by month
+  // X-axis granularity: user-selectable like a trading chart (1D, 1W, 1M)
+  type Granularity = '1D' | '1W' | '1M'
+  const [granularity, setGranularity] = useState<Granularity>('1W')
+
+  // Auto-set a sensible default whenever the date range changes
+  useEffect(() => {
+    if (daysDiff <= 35) setGranularity('1D')
+    else if (daysDiff <= 120) setGranularity('1W')
+    else setGranularity('1M')
+  }, [daysDiff])
+
+  // Build the list of data-point dates based on the chosen granularity
   const getDataPoints = useMemo(() => {
     const points: Date[] = []
-    const current = new Date(dateRange.startDate)
+    const { startDate, endDate } = dateRange
 
-    // For monthly period with small range (< 35 days), show weekly points
-    if (period === 'monthly' && daysDiff <= 35) {
-      // Show weekly data points
-      while (current <= dateRange.endDate) {
+    if (granularity === '1D') {
+      // One point per calendar day
+      const current = new Date(startDate)
+      while (current <= endDate) {
+        points.push(new Date(current))
+        current.setDate(current.getDate() + 1)
+      }
+    } else if (granularity === '1W') {
+      // One point per week
+      const current = new Date(startDate)
+      while (current <= endDate) {
         points.push(new Date(current))
         current.setDate(current.getDate() + 7)
       }
-      // Always include the end date
-      if (points.length === 0 || points[points.length - 1].getTime() < dateRange.endDate.getTime()) {
-        points.push(new Date(dateRange.endDate))
+      // Always cap with the actual end date for accuracy
+      if (points.length === 0 || points[points.length - 1].getTime() < endDate.getTime()) {
+        points.push(new Date(endDate))
       }
     } else {
-      // Show monthly data points (last day of each month or range endpoints)
-      // Start with the first day
-      points.push(new Date(current))
+      // '1M': one point per calendar month (end-of-month)
+      const current = new Date(startDate)
+      points.push(new Date(current)) // start anchor
 
-      // Move to end of first month
+      // Advance to end of first month
       current.setMonth(current.getMonth() + 1)
-      current.setDate(0) // Last day of previous month
+      current.setDate(0)
 
-      while (current < dateRange.endDate) {
+      while (current < endDate) {
         points.push(new Date(current))
-        // Move to end of next month
         current.setMonth(current.getMonth() + 2)
         current.setDate(0)
       }
-
-      // Always include the end date
-      points.push(new Date(dateRange.endDate))
+      points.push(new Date(endDate)) // end anchor
     }
 
     return points
-  }, [dateRange, period, daysDiff])
+  }, [dateRange, granularity])
 
   // Helper to convert date to comparable timestamp
   const getDateTimestamp = (d: Date | string): number => {
@@ -85,13 +96,12 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
     return isNaN(date.getTime()) ? 0 : date.getTime()
   }
 
-  // Format date label based on period
+  // Format x-axis label based on granularity
   const formatDateLabel = (date: Date): string => {
-    if (period === 'monthly' && daysDiff <= 35) {
-      // For weekly view within a month, show day
+    if (granularity === '1D' || granularity === '1W') {
       return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
     }
-    // For longer periods, show month and year
+    // '1M': show month + 2-digit year
     return date.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
   }
 
@@ -159,7 +169,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
         liabilities: parseFloat(totalLiabilities.toFixed(2)),
       }
     })
-  }, [accounts, allTransactions, getDataPoints, period, daysDiff])
+  }, [accounts, allTransactions, getDataPoints, granularity])
 
   if (!accounts || !allTransactions) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
@@ -186,7 +196,26 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   return (
     <div className="bg-card rounded-lg border border-border p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-4">Net Worth Trend</h3>
+        {/* Title row + granularity picker */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Net Worth Trend</h3>
+          {/* Scale selector — like trading chart intervals */}
+          <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
+            {(['1D', '1W', '1M'] as const).map((g) => (
+              <button
+                key={g}
+                onClick={() => setGranularity(g)}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                  granularity === g
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Net Worth Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">

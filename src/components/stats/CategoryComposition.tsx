@@ -49,7 +49,7 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
     const endTs = dateRange.endDate.getTime()
 
     return allTransactions.filter((tx: Transaction) => {
-      const txDate = tx.date instanceof Date ? tx.date : new Date(tx.date)
+      const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
       return txTs >= startTs && txTs <= endTs
