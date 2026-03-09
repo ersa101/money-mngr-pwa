@@ -64,7 +64,7 @@ export function SubCategoryTrend({
     const endTs = dateRange.endDate.getTime()
 
     return allTransactions.filter((tx: Transaction) => {
-      const txDate = tx.date instanceof Date ? tx.date : new Date(tx.date)
+      const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
       return txTs >= startTs && txTs <= endTs
@@ -121,7 +121,7 @@ export function SubCategoryTrend({
 
         const amount = transactions
           .filter((tx: Transaction) => {
-            const date = tx.date instanceof Date ? tx.date : new Date(tx.date)
+            const date = new Date(tx.date)
             if (isNaN(date.getTime())) return false
             return (
               tx.subCategoryId === subCat.id &&
@@ -161,7 +161,7 @@ export function SubCategoryTrend({
     const total = selectedTxs.reduce((sum: number, tx: Transaction) => sum + tx.amount, 0)
     const uniqueMonths = new Set(
       selectedTxs.map((tx: Transaction) => {
-        const date = tx.date instanceof Date ? tx.date : new Date(tx.date)
+        const date = new Date(tx.date)
         return `${date.getFullYear()}-${date.getMonth()}`
       })
     ).size

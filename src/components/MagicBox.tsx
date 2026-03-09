@@ -78,11 +78,11 @@ export function MagicBox({ onSuccess }: MagicBoxProps) {
       // Get subcategories from transactions
       const subCatMap = new Map<string, Set<string>>()
       recentTransactions.forEach(tx => {
-        if (tx.category && tx.subCategory) {
-          if (!subCatMap.has(tx.category)) {
-            subCatMap.set(tx.category, new Set())
+        if (tx.csvCategory && tx.csvSubcategory) {
+          if (!subCatMap.has(tx.csvCategory)) {
+            subCatMap.set(tx.csvCategory, new Set())
           }
-          subCatMap.get(tx.category)!.add(tx.subCategory)
+          subCatMap.get(tx.csvCategory)!.add(tx.csvSubcategory)
         }
       })
       existingCategories.forEach(cat => {
@@ -98,8 +98,8 @@ export function MagicBox({ onSuccess }: MagicBoxProps) {
       }))
 
       const txForLLM = recentTransactions.slice(0, 20).map(tx => ({
-        category: tx.category || '',
-        subCategory: tx.subCategory,
+        category: tx.csvCategory || '',
+        subCategory: tx.csvSubcategory,
         merchant: tx.description,
         description: tx.description
       })).filter(t => t.category)

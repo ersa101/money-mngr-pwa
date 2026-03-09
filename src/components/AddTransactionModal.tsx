@@ -83,13 +83,18 @@ export function AddTransactionModal({
   const [noteSuggestions, setNoteSuggestions] = useState<string[]>([]);
   const [showNoteSuggestions, setShowNoteSuggestions] = useState(false);
 
-  // Fetch unique notes from transaction history for autocomplete
+  // Fetch unique notes from transaction history for autocomplete.
+  // Pool both `description` (manually entered Note field) and `notes`
+  // (CSV-imported note column, stored in the `notes` field after schema migration)
+  // so that historical CSV data also appears as suggestions.
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db]) || [];
   const uniqueNotes = useMemo(() => {
-    const notes = allTransactions
-      .map(t => t.description)
-      .filter((n): n is string => !!n && n.trim() !== '')
-    return [...new Set(notes)].sort();
+    const seen = new Set<string>()
+    allTransactions.forEach(t => {
+      if (t.description && t.description.trim()) seen.add(t.description.trim())
+      if (t.notes && t.notes.trim()) seen.add(t.notes.trim())
+    })
+    return Array.from(seen).sort()
   }, [allTransactions]);
 
   // Filter categories by type
@@ -221,49 +226,50 @@ export function AddTransactionModal({
         .limit(20)
         .toArray();
 
-      const result = await llmService.getSuggestion(smsText, {
-        accounts,
-        categories,
-        recentTransactions,
-      });
+      // Build context in the format llmService.getSuggestion expects
+      const existingCategories = categories.map(c => ({ name: c.name, type: c.type, subCategories: [] as string[] }))
+      const existingAccounts = accounts.map(a => ({ name: a.name, type: a.type }))
+      const txForLLM = recentTransactions.slice(0, 20).map(tx => ({
+        category: tx.csvCategory || '',
+        subCategory: tx.csvSubcategory,
+        merchant: tx.description,
+        description: tx.description,
+      })).filter(t => t.category)
 
-      if (result) {
+      const result = await llmService.getSuggestion(smsText, existingCategories, existingAccounts, txForLLM);
+
+      if (result && result.success && result.suggestion) {
+        const suggestion = result.suggestion;
         // Apply AI suggestions
-        if (result.transactionType) {
-          setTransactionType(result.transactionType as TransactionType);
+        if (suggestion.transactionType) {
+          setTransactionType(suggestion.transactionType as TransactionType);
         }
-        if (result.amount) {
-          setAmount(result.amount.toString());
-        }
-        if (result.accountName) {
-          const account = accounts.find(a => 
-            a.name.toLowerCase().includes(result.accountName!.toLowerCase())
+        if (suggestion.accountName) {
+          const account = accounts.find(a =>
+            a.name.toLowerCase().includes(suggestion.accountName!.toLowerCase())
           );
           if (account) {
-            if (result.transactionType === 'EXPENSE' || result.transactionType === 'TRANSFER') {
+            if (suggestion.transactionType === 'EXPENSE') {
               setFromAccountId(account.id!.toString());
             } else {
               setToAccountId(account.id!.toString());
             }
           }
         }
-        if (result.categoryName) {
-          const category = categories.find(c => 
-            c.name.toLowerCase() === result.categoryName!.toLowerCase()
+        if (suggestion.category) {
+          const category = categories.find(c =>
+            c.name.toLowerCase() === suggestion.category!.toLowerCase()
           );
           if (category) {
             setCategoryId(category.id!.toString());
           }
         }
-        if (result.description) {
-          setNote(result.description);
-        }
 
         setParseSource('ai');
-        toast.success(`AI parsed! (${result.provider}, ${result.confidence}% confidence)`);
-        
-        if (result.reasoning) {
-          console.log('AI Reasoning:', result.reasoning);
+        toast.success(`AI parsed! (${result.provider}, ${suggestion.confidence}% confidence)`);
+
+        if (suggestion.reasoning) {
+          console.log('AI Reasoning:', suggestion.reasoning);
         }
       } else {
         toast.error('AI could not parse SMS');

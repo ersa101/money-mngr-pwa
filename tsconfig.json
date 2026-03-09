@@ -28,18 +28,6 @@
     "paths": {
       "@/*": [
         "./src/*"
-      ],
-      "react": [
-        "./types/react.d.ts"
-      ],
-      "react/*": [
-        "./types/react.d.ts"
-      ],
-      "dexie-react-hooks": [
-        "./types/dexie-react-hooks.d.ts"
-      ],
-      "lucide-react": [
-        "./types/lucide-react.d.ts"
       ]
     },
     "target": "ES2017"

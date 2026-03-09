@@ -16,56 +16,52 @@ export function useDateFilter() {
 
   // Calculate date range based on period
   // Using ROLLING periods (not calendar-based)
+  // NOTE: Use new Date(year, month - N, 1) instead of setMonth() to avoid
+  // day-of-month overflow bugs (e.g. Aug 31 → setMonth(1) → "Feb 31" → Mar 3).
   const dateRange = useMemo(() => {
     const today = new Date()
-    let startDate: Date
+    const y = today.getFullYear()
+    const m = today.getMonth() // 0-based
 
     switch (period) {
       case 'monthly':
-        // Rolling 1 month: current month from 1st
-        startDate = new Date(today.getFullYear(), today.getMonth(), 1)
-        return { startDate, endDate: today }
+        // Current month from the 1st
+        return { startDate: new Date(y, m, 1), endDate: today }
 
       case 'quarterly':
-        // Rolling 3 months back from today
-        startDate = new Date(today)
-        startDate.setMonth(startDate.getMonth() - 3)
-        startDate.setDate(1) // Start from 1st of that month
-        return { startDate, endDate: today }
+        // Rolling 3 calendar months back, anchored to 1st
+        return { startDate: new Date(y, m - 3, 1), endDate: today }
 
       case 'semi-annual':
-        // Rolling 6 months back from today
-        startDate = new Date(today)
-        startDate.setMonth(startDate.getMonth() - 6)
-        startDate.setDate(1) // Start from 1st of that month
-        return { startDate, endDate: today }
+        // Rolling 6 calendar months back, anchored to 1st
+        return { startDate: new Date(y, m - 6, 1), endDate: today }
 
       case 'annual':
-        // Rolling 12 months back from today
-        startDate = new Date(today)
-        startDate.setMonth(startDate.getMonth() - 12)
-        startDate.setDate(1) // Start from 1st of that month
-        return { startDate, endDate: today }
+        // Rolling 12 calendar months back, anchored to 1st
+        return { startDate: new Date(y, m - 12, 1), endDate: today }
 
       case 'custom':
         return customRange
 
       default:
-        startDate = new Date(today)
-        startDate.setMonth(startDate.getMonth() - 12)
-        startDate.setDate(1)
-        return { startDate, endDate: today }
+        return { startDate: new Date(y, m - 12, 1), endDate: today }
     }
   }, [period, customRange])
 
   // Get all months between startDate and endDate
   const getMonthsInRange = () => {
     const months = []
-    const current = new Date(dateRange.startDate)
+    // Always start from the 1st of the start month to avoid day-of-month overflow
+    // when incrementing (e.g. Jan 31 → setMonth(1) → "Feb 31" → Mar 3, skipping Feb).
+    let y = dateRange.startDate.getFullYear()
+    let mo = dateRange.startDate.getMonth()
 
-    while (current <= dateRange.endDate) {
-      months.push(new Date(current))
-      current.setMonth(current.getMonth() + 1)
+    while (true) {
+      const current = new Date(y, mo, 1)
+      if (current > dateRange.endDate) break
+      months.push(current)
+      mo++
+      if (mo > 11) { mo = 0; y++ }
     }
 
     return months

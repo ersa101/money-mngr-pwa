@@ -1,0 +1,185 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Editor Settings
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": true
+    },
+    "editor.rulers": [80, 120],
+    "editor.wordWrap": "on",
+    
+    // TypeScript Settings
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    
+    // File Explorer Settings
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+      "*.ts": "${capture}.js, ${capture}.d.ts, ${capture}.test.ts",
+      "*.tsx": "${capture}.test.tsx",
+      "package.json": "package-lock.json, pnpm-lock.yaml, yarn.lock"
+    },
+    
+    // Git Settings
+    "git.confirmSync": false,
+    "git.autofetch": true,
+    "git.enableSmartCommit": true,
+    
+    // Search Settings
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/.next": true,
+      "**/out": true,
+      "**/.vercel": true
+    },
+    
+    // Files to Watch
+    "files.watcherExclude": {
+      "**/.git/objects/**": true,
+      "**/.git/subtree-cache/**": true,
+      "**/node_modules/**": true,
+      "**/.next/**": true
+    },
+    
+    // Auto-save
+    "files.autoSave": "onFocusChange",
+    
+    // Terminal
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    
+    // Custom Task Shortcuts
+    "tasks.version": "2.0.0"
+  },
+  
+  // Extensions Recommendations
+  "extensions": {
+    "recommendations": [
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "bradlc.vscode-tailwindcss",
+      "ms-vscode.vscode-typescript-next",
+      "eamodio.gitlens",
+      "usernamehw.errorlens",
+      "christian-kohler.path-intellisense",
+      "formulahendry.auto-rename-tag",
+      "streetsidesoftware.code-spell-checker"
+    ]
+  },
+  
+  // Tasks (Press Ctrl+Shift+B to run)
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "🚀 Dev Server",
+        "type": "shell",
+        "command": "npm run dev",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "✅ TypeScript Check",
+        "type": "shell",
+        "command": "npx tsc --noEmit",
+        "group": "build",
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        },
+        "problemMatcher": "$tsc"
+      },
+      {
+        "label": "🧪 Smoke Test",
+        "type": "shell",
+        "command": "echo '1. Homepage redirects to /transactions\n2. Can add transaction\n3. Balance updates\n4. /accounts loads\n5. /stats loads\n6. 0 console errors'",
+        "group": "test",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "📊 Generate Agent Context",
+        "type": "shell",
+        "command": "./generate-agent-context.sh",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "🔍 Git Status",
+        "type": "shell",
+        "command": "git log -5 --oneline && echo '\n--- Uncommitted Changes ---\n' && git status",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "shared"
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "📦 Install Dependencies",
+        "type": "shell",
+        "command": "npm install",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated"
+        },
+        "problemMatcher": []
+      }
+    ]
+  },
+  
+  // Launch Configurations (F5 to debug)
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Next.js: debug server-side",
+        "type": "node",
+        "request": "attach",
+        "port": 9229,
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "Next.js: debug client-side",
+        "type": "chrome",
+        "request": "launch",
+        "url": "http://localhost:3000",
+        "webRoot": "${workspaceFolder}"
+      },
+      {
+        "name": "Next.js: debug full stack",
+        "type": "node",
+        "request": "launch",
+        "program": "${workspaceFolder}/node_modules/.bin/next",
+        "runtimeArgs": ["--inspect"],
+        "skipFiles": ["<node_internals>/**"],
+        "serverReadyAction": {
+          "action": "debugWithChrome",
+          "pattern": "started server on .+, url: (https?://.+)",
+          "uriFormat": "%s",
+          "killOnServerStop": true
+        }
+      }
+    ]
+  }
+}

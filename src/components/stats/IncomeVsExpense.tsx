@@ -35,7 +35,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
     const endTs = dateRange.endDate.getTime()
 
     return allTransactions.filter((tx: Transaction) => {
-      const txDate = tx.date instanceof Date ? tx.date : new Date(tx.date)
+      const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
       return txTs >= startTs && txTs <= endTs
@@ -61,7 +61,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
 
     // Sum transactions by month and type (use transactionType field)
     transactions.forEach((tx: Transaction) => {
-      const date = tx.date instanceof Date ? tx.date : new Date(tx.date)
+      const date = new Date(tx.date)
       if (isNaN(date.getTime())) return
 
       const monthKey = date.toLocaleDateString('en-IN', {

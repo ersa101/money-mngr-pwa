@@ -128,14 +128,16 @@ export async function seedComplexTestData(seed = 12345) {
     // persist transactions and also update balances accordingly
     for (const tx of transactionsToCreate) {
       const txId = await db.transactions.add({
-        date: tx.date,
+        date: tx.date instanceof Date ? tx.date.toISOString() : String(tx.date),
         amount: tx.amount,
         fromAccountId: tx.fromAccountId,
-        toCategoryId: tx.toCategoryId,
+        categoryId: tx.toCategoryId,       // renamed: toCategoryId → categoryId
         toAccountId: tx.toAccountId,
         description: tx.description,
-        isTransfer: !!tx.isTransfer,
-        smsRaw: tx.smsRaw,
+        transactionType: tx.isTransfer ? 'TRANSFER' : (tx.toCategoryId ? 'EXPENSE' : 'INCOME'),
+        status: 'CONFIRMED',
+        source: 'MANUAL',
+        currency: 'INR',
       })
 
       // update account balances minimally (simple approach): debit fromAccount, credit toAccount if transfer

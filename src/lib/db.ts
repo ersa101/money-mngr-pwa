@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Account, Category, Transaction } from '@/types/database';
+import type { Account, Category, Transaction, ThresholdWarning } from '@/types/database';
 
 export class MySubClassedDB extends Dexie {
   accounts!: Table<Account>;
@@ -32,4 +32,4 @@ export class MySubClassedDB extends Dexie {
 export const db = new MySubClassedDB();
 
 // Also re-export types for convenience in other files if needed
-export type { Account, Category, Transaction };
+export type { Account, Category, Transaction, ThresholdWarning };

@@ -1,6 +1,7 @@
 'use client'
 
 import type { MySubClassedDB } from './db'
+import { validateCSV } from './csvValidator'
 
 export interface CSVRow {
   date?: string
@@ -77,6 +78,18 @@ export async function parseCSV(file: File): Promise<CSVRow[]> {
     reader.onload = (event) => {
       try {
         const csv = event.target?.result as string
+
+        // ✅ P1.1 Strict header validation — reject entire file if required columns missing
+        const headerValidation = validateCSV(csv)
+        if (!headerValidation.headers.valid) {
+          const missing = headerValidation.headers.missing
+          reject(new Error(
+            `CSV header error: Missing required column(s): ${missing.join(', ')}.\n` +
+            `Required columns: Date, Account, Category, Subcategory, Note, Type, Description, Amount, Currency.\n` +
+            `Tip: Download the CSV template from the import dialog for the correct format.`
+          ))
+          return
+        }
 
         // Robust CSV parser handling quoted fields and embedded newlines
         const parseCSVText = (text: string): string[][] => {

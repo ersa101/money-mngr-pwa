@@ -21,9 +21,8 @@ export function TransactionDetailModal({
 }: TransactionDetailModalProps) {
   if (!isOpen || !transaction) return null
 
-  const txDate = transaction.date instanceof Date
-    ? transaction.date
-    : new Date(transaction.date)
+  // date is always stored as ISO string
+  const txDate = new Date(transaction.date)
 
   const isValidDate = !isNaN(txDate.getTime())
 
@@ -31,8 +30,8 @@ export function TransactionDetailModal({
   const toAccount = transaction.toAccountId
     ? accounts.find((a) => a.id === transaction.toAccountId)
     : null
-  const category = transaction.toCategoryId
-    ? categories.find((c) => c.id === transaction.toCategoryId)
+  const category = transaction.categoryId
+    ? categories.find((c) => c.id === transaction.categoryId)
     : null
 
   const isIncome = transaction.transactionType === 'INCOME'
@@ -135,14 +134,14 @@ export function TransactionDetailModal({
             </div>
             <div className="flex items-center gap-2">
               <div className="flex-1">
-                <p className="font-medium">{fromAccount?.name || transaction.csvAccount || 'Unknown'}</p>
+                <p className="font-medium">{fromAccount?.name || 'Unknown'}</p>
                 <p className="text-xs text-muted-foreground">{fromAccount?.type || 'Account'}</p>
               </div>
               {isTransfer && (
                 <>
                   <ArrowRight className="w-5 h-5 text-muted-foreground" />
                   <div className="flex-1">
-                    <p className="font-medium">{toAccount?.name || transaction.category || 'Unknown'}</p>
+                    <p className="font-medium">{toAccount?.name || 'Unknown'}</p>
                     <p className="text-xs text-muted-foreground">{toAccount?.type || 'Account'}</p>
                   </div>
                 </>
@@ -158,9 +157,9 @@ export function TransactionDetailModal({
                 <span className="text-xs">Category</span>
               </div>
               <p className="font-medium">
-                {transaction.category || category?.name || 'Unknown'}
-                {transaction.subCategory && (
-                  <span className="text-muted-foreground"> / {transaction.subCategory}</span>
+                {transaction.csvCategory || category?.name || 'Unknown'}
+                {transaction.csvSubcategory && (
+                  <span className="text-muted-foreground"> / {transaction.csvSubcategory}</span>
                 )}
               </p>
             </div>
@@ -178,24 +177,13 @@ export function TransactionDetailModal({
           )}
 
           {/* Note */}
-          {transaction.note && (
+          {transaction.notes && (
             <div className="p-3 bg-muted rounded-lg">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <FileText className="w-4 h-4" />
                 <span className="text-xs">Note</span>
               </div>
-              <p className="text-sm text-muted-foreground">{transaction.note}</p>
-            </div>
-          )}
-
-          {/* Raw Data (for CSV imports) */}
-          {transaction.csvDescription && transaction.csvDescription !== transaction.description && (
-            <div className="p-3 bg-muted rounded-lg">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <FileText className="w-4 h-4" />
-                <span className="text-xs">CSV Description</span>
-              </div>
-              <p className="text-sm text-muted-foreground">{transaction.csvDescription}</p>
+              <p className="text-sm text-muted-foreground">{transaction.notes}</p>
             </div>
           )}
 
@@ -203,9 +191,9 @@ export function TransactionDetailModal({
           <div className="text-center pt-4 border-t border-border">
             <p className="text-xs text-muted-foreground">
               Transaction ID: {transaction.id}
-              {transaction.importedAt && (
+              {transaction.createdAt && (
                 <>
-                  {' | '}Imported: {new Date(transaction.importedAt).toLocaleString('en-IN')}
+                  {' | '}Added: {new Date(transaction.createdAt).toLocaleString('en-IN')}
                 </>
               )}
             </p>
