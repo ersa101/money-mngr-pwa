@@ -5,13 +5,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext'
 import type { Account, Category, Transaction } from '@/types/database'
 import { Button } from '@/components/ui/button'
-import { Settings, Tag, Landmark, Pencil, Trash2, Plus, X, Check, FolderOpen, ChevronDown, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
+import { Settings, Tag, Landmark, Pencil, Trash2, Plus, X, Check, FolderOpen, ChevronDown, ChevronRight, TrendingUp, TrendingDown, KeyRound, Eye, EyeOff } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import { BackupSection } from '@/components/settings/BackupSection'
 import { SnapshotSection } from '@/components/settings/SnapshotSection'
 import toast from 'react-hot-toast'
 
-type TabType = 'categories' | 'accounts' | 'data'
+type TabType = 'categories' | 'accounts' | 'data' | 'ai-keys'
 
 // Account type display names
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
@@ -41,6 +41,29 @@ export default function SettingsPage() {
   // Editing state
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
+
+  // AI API keys state
+  const [geminiKey, setGeminiKey] = useState('')
+  const [claudeKey, setClaudeKey] = useState('')
+  const [showGeminiKey, setShowGeminiKey] = useState(false)
+  const [showClaudeKey, setShowClaudeKey] = useState(false)
+  const [aiKeysSaved, setAiKeysSaved] = useState(false)
+
+  // Load existing keys from DB on mount
+  useEffect(() => {
+    if (!db) return
+    db.appSettings.get('gemini_api_key').then((s) => { if (s?.value) setGeminiKey(s.value) })
+    db.appSettings.get('claude_api_key').then((s) => { if (s?.value) setClaudeKey(s.value) })
+  }, [db])
+
+  const saveAiKeys = async () => {
+    if (!db) return
+    await db.appSettings.put({ key: 'gemini_api_key', value: geminiKey.trim() })
+    await db.appSettings.put({ key: 'claude_api_key', value: claudeKey.trim() })
+    setAiKeysSaved(true)
+    setTimeout(() => setAiKeysSaved(false), 2000)
+    toast.success('API keys saved!')
+  }
 
   // Fetch data
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
@@ -284,12 +307,85 @@ export default function SettingsPage() {
               <Landmark className="w-4 h-4" />
               Accounts
             </button>
+            <button
+              onClick={() => setActiveTab('ai-keys')}
+              className={`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition ${
+                activeTab === 'ai-keys'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              <KeyRound className="w-4 h-4" />
+              AI Keys
+            </button>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* AI Keys Tab */}
+        {activeTab === 'ai-keys' && (
+          <div className="space-y-6 max-w-lg">
+            <div className="bg-card rounded-lg border border-border p-6 space-y-5">
+              <div className="flex items-center gap-2 mb-2">
+                <KeyRound className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-semibold">AI API Keys</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Keys are stored locally in your browser (IndexedDB). They are never sent to our servers — only forwarded directly to the AI provider when you use FAIN features.
+              </p>
+
+              {/* Gemini Key */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Gemini API Key (Primary)</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showGeminiKey ? 'text' : 'password'}
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+                  />
+                  <button
+                    onClick={() => setShowGeminiKey((v) => !v)}
+                    className="p-2 text-muted-foreground hover:text-foreground border border-border rounded-md transition"
+                    title={showGeminiKey ? 'Hide' : 'Show'}
+                  >
+                    {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">Get a free key from Google AI Studio (aistudio.google.com)</p>
+              </div>
+
+              {/* Claude Key */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Claude API Key (Fallback)</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showClaudeKey ? 'text' : 'password'}
+                    value={claudeKey}
+                    onChange={(e) => setClaudeKey(e.target.value)}
+                    placeholder="sk-ant-..."
+                    className="flex-1 bg-background border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary"
+                  />
+                  <button
+                    onClick={() => setShowClaudeKey((v) => !v)}
+                    className="p-2 text-muted-foreground hover:text-foreground border border-border rounded-md transition"
+                    title={showClaudeKey ? 'Hide' : 'Show'}
+                  >
+                    {showClaudeKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              <Button onClick={saveAiKeys} className="w-full">
+                {aiKeysSaved ? <><Check className="w-4 h-4 mr-2" /> Saved!</> : 'Save API Keys'}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Data Management Tab */}
         {activeTab === 'data' && (
           <div className="space-y-6">

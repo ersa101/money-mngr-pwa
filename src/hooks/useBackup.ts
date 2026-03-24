@@ -59,6 +59,15 @@ export function useBackup() {
         throw new Error(result.error || 'Restore failed');
       }
 
+      const totalRecords =
+        (result.data?.accounts?.length || 0) +
+        (result.data?.categories?.length || 0) +
+        (result.data?.transactions?.length || 0);
+
+      if (totalRecords === 0) {
+        throw new Error('No backup data found for your account in Google Sheets. Backup first or check your account.');
+      }
+
       await db.transaction('rw', db.accounts, db.categories, db.transactions, async () => {
         await db.accounts.clear();
         await db.categories.clear();

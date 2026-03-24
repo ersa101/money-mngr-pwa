@@ -66,6 +66,8 @@ next-env.d.ts
 # Google credentials (NEVER COMMIT!)
 client_secret*.json
 *-googleprojectapi.json
+*googleproject*.json
+*MASTERapi.json
 *.credentials.json
 
 # Claude Code internal

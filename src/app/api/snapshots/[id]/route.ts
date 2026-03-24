@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { driveClient } from '@/lib/google-drive';
 
-// GET: Get snapshot content
+// GET: Restore snapshot
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const session = await auth();
+  if (!session?.accessToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   try {
-    const data = await driveClient.getSnapshot(params.id);
+    const data = await driveClient.getSnapshot(session.accessToken, id);
     return NextResponse.json({ success: true, data });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -16,11 +23,17 @@ export async function GET(
 
 // DELETE: Delete snapshot
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const session = await auth();
+  if (!session?.accessToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   try {
-    await driveClient.deleteSnapshot(params.id);
+    await driveClient.deleteSnapshot(session.accessToken, id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

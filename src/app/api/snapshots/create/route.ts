@@ -4,17 +4,19 @@ import { driveClient } from '@/lib/google-drive';
 
 export async function POST(request: NextRequest) {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!session?.accessToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
-  const userId = session.user.id;
 
   try {
     const data = await request.json();
-    // Snapshot is stored inside the per-user subfolder in Drive
-    const result = await driveClient.createSnapshot(data, userId);
+    const result = await driveClient.createSnapshot(session.accessToken, data);
     return NextResponse.json({ success: true, ...result });
   } catch (error: any) {
+    if (error?.code === 401 || error?.message?.includes('invalid_grant')) {
+      return NextResponse.json({ error: 'TOKEN_EXPIRED' }, { status: 401 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

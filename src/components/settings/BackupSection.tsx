@@ -33,7 +33,7 @@ export function BackupSection() {
         </Button>
       </div>
        <p className="mt-4 text-xs text-slate-500">
-        Note: Ensure you have configured your Google credentials in the settings.
+        Backup is stored securely in Google Sheets. Restore replaces all local data.
       </p>
     </div>
   );

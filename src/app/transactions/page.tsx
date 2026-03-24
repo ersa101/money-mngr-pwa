@@ -6,7 +6,7 @@ import { useDb } from '@/contexts/DbContext'
 import type { Account, Category, Transaction } from '@/types/database'
 import { AddTransactionModal, CSVUploadModal } from '@/components'
 import { TransactionList } from '@/components/transactions/TransactionList'
-import { Plus, Search, Filter, X, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
+import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import toast from 'react-hot-toast'
 
@@ -288,6 +288,26 @@ function TransactionsPage() {
     setIsModalOpen(true);
   };
 
+  const handleTap = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setIsModalOpen(true);
+  };
+
+  const handleCopy = async (transaction: Transaction) => {
+    if (!db) { toast.error('Database not available'); return; }
+    const { id, createdAt, updatedAt, ...rest } = transaction;
+    const now = new Date();
+    const copy = {
+      ...rest,
+      date: now.toISOString().slice(0, 16),
+      source: 'MANUAL' as const,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+    await db.transactions.add(copy);
+    toast.success('Transaction duplicated');
+  };
+
   const handleDelete = async (transaction: Transaction) => {
     if (!db) {
       toast.error('Database not available');
@@ -297,31 +317,21 @@ function TransactionsPage() {
       // Basic deletion, doesn't account for balance updates or linked txns from v3
       await db.transactions.delete(transaction.id!);
       toast.success('Transaction deleted');
+      handleCloseModal();
     }
   };
-  
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingTransaction(null);
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 text-white pb-24">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 text-white">
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Transactions</h1>
-            <p className="mt-1 text-sm text-slate-400">Track and manage all your financial activities</p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 font-medium hover:bg-blue-700"
-            >
-              <Plus size={20} /> Add Transaction
-            </button>
-            <CSVUploadModal onSuccess={() => {}} />
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold">Transactions</h1>
+          <p className="mt-1 text-sm text-slate-400">Track and manage all your financial activities</p>
         </div>
 
         <div className="rounded-lg bg-slate-800 p-4 space-y-4">
@@ -346,17 +356,29 @@ function TransactionsPage() {
             </div>
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+              className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
                 showFilters || hasActiveFilters
                   ? 'bg-blue-600 border-blue-600 text-white'
                   : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
               }`}
             >
               <Filter size={18} />
-              Filters
-              {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-yellow-400" />}
-              {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              {hasActiveFilters && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-yellow-400" />}
             </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Plus size={18} />
+            </button>
+            <CSVUploadModal
+              onSuccess={() => {}}
+              trigger={
+                <button className="flex items-center justify-center p-2 rounded-lg bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600">
+                  <Upload size={18} />
+                </button>
+              }
+            />
           </div>
 
           {showFilters && (
@@ -504,6 +526,7 @@ function TransactionsPage() {
               transactions={filteredTransactions}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onTap={handleTap}
             />
           ) : (
             groupedTransactions.map((group) => {
@@ -554,6 +577,7 @@ function TransactionsPage() {
                         transactions={group.transactions}
                         onEdit={handleEdit}
                         onDelete={handleDelete}
+                        onTap={handleTap}
                       />
                     </div>
                   )}
@@ -568,6 +592,8 @@ function TransactionsPage() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         editTransaction={editingTransaction}
+        onCopy={editingTransaction ? handleCopy : undefined}
+        onDelete={editingTransaction ? handleDelete : undefined}
       />
     </div>
   )

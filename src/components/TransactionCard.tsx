@@ -4,12 +4,11 @@ import { useMemo } from 'react';
 import { Transaction, Account, Category } from '@/types/database';
 import { formatCurrency } from '@/lib/currency-utils';
 import { formatDateTime } from '@/lib/date-utils';
-import { 
-  ArrowRight, 
-  ArrowUpRight, 
+import {
+  ArrowRight,
+  ArrowUpRight,
   ArrowDownLeft,
   MoreVertical,
-  Pencil,
   Trash2
 } from 'lucide-react';
 import {
@@ -25,6 +24,7 @@ interface TransactionCardProps {
   categories: Category[];
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
+  onTap?: (transaction: Transaction) => void;
 }
 
 export function TransactionCard({
@@ -33,6 +33,7 @@ export function TransactionCard({
   categories,
   onEdit,
   onDelete,
+  onTap,
 }: TransactionCardProps) {
   const isTransfer = transaction.transactionType === 'TRANSFER';
   const isExpense = transaction.transactionType === 'EXPENSE';
@@ -58,7 +59,10 @@ export function TransactionCard({
   // ═══════════════════════════════════════════════════════════════
   if (isTransfer) {
     return (
-      <div className="bg-slate-800 rounded-lg p-4 border-l-4 border-blue-500 hover:bg-slate-750 transition-colors">
+      <div
+        className="bg-slate-800 rounded-lg p-4 border-l-4 border-blue-500 hover:bg-slate-750 transition-colors cursor-pointer"
+        onClick={() => onTap?.(transaction)}
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -69,15 +73,12 @@ export function TransactionCard({
               {formatDateTime(transaction.date)}
             </span>
           </div>
-          
+
           <DropdownMenu>
-            <DropdownMenuTrigger className="p-1 hover:bg-slate-700 rounded">
+            <DropdownMenuTrigger className="p-1 hover:bg-slate-700 rounded" onClick={(e) => e.stopPropagation()}>
               <MoreVertical className="w-4 h-4 text-slate-400" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-              <DropdownMenuItem onClick={() => onEdit(transaction)} className="text-slate-300">
-                <Pencil className="w-4 h-4 mr-2" /> Edit
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(transaction)} className="text-red-400">
                 <Trash2 className="w-4 h-4 mr-2" /> Delete
               </DropdownMenuItem>
@@ -136,9 +137,12 @@ export function TransactionCard({
   // EXPENSE / INCOME CARD
   // ═══════════════════════════════════════════════════════════════
   return (
-    <div className={`bg-slate-800 rounded-lg p-4 border-l-4 hover:bg-slate-750 transition-colors ${
-      isExpense ? 'border-red-500' : 'border-green-500'
-    }`}>
+    <div
+      className={`bg-slate-800 rounded-lg p-4 border-l-4 hover:bg-slate-750 transition-colors cursor-pointer ${
+        isExpense ? 'border-red-500' : 'border-green-500'
+      }`}
+      onClick={() => onTap?.(transaction)}
+    >
       <div className="flex items-start justify-between">
         {/* Left: Icon, Category, Description */}
         <div className="flex items-start gap-3 flex-1 min-w-0">
@@ -182,13 +186,10 @@ export function TransactionCard({
           </div>
           
           <DropdownMenu>
-            <DropdownMenuTrigger className="p-1 hover:bg-slate-700 rounded">
+            <DropdownMenuTrigger className="p-1 hover:bg-slate-700 rounded" onClick={(e) => e.stopPropagation()}>
               <MoreVertical className="w-4 h-4 text-slate-400" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-              <DropdownMenuItem onClick={() => onEdit(transaction)} className="text-slate-300">
-                <Pencil className="w-4 h-4 mr-2" /> Edit
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDelete(transaction)} className="text-red-400">
                 <Trash2 className="w-4 h-4 mr-2" /> Delete
               </DropdownMenuItem>

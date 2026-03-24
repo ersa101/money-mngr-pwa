@@ -21,12 +21,14 @@ interface TransactionListProps {
   transactions: Transaction[];
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
+  onTap?: (transaction: Transaction) => void;
 }
 
 export function TransactionList({
   transactions,
   onEdit,
-  onDelete
+  onDelete,
+  onTap,
 }: TransactionListProps) {
   const db = useDb()
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
@@ -168,6 +170,7 @@ export function TransactionList({
                 categories={categories}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onTap={onTap}
               />
             </div>
           </div>

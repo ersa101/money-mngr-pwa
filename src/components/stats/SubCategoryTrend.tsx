@@ -15,6 +15,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
+import { SubCategorySelector } from './SubCategorySelector'
 
 interface SubCategoryTrendProps {
   dateRange: { startDate: Date; endDate: Date }
@@ -184,45 +185,18 @@ export function SubCategoryTrend({
     )
   }
 
-  const toggleSubCategory = (id: number) => {
-    const newSet = new Set(selectedSubCategories)
-    if (newSet.has(id)) {
-      newSet.delete(id)
-    } else {
-      newSet.add(id)
-    }
-    setSelectedSubCategories(newSet)
-  }
-
   return (
     <div className="bg-card rounded-lg border border-border p-6">
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-4">Sub-Category Trends</h3>
 
-        {/* Sub-Category Selector */}
-        <div className="flex flex-wrap gap-2">
-          {subCategoriesWithData.map((cat, idx) => (
-            <button
-              key={cat.id}
-              onClick={() => toggleSubCategory(cat.id!)}
-              className={`px-3 py-1 rounded text-sm font-medium transition border ${
-                selectedSubCategories.has(cat.id!)
-                  ? 'text-white border-transparent'
-                  : 'border-border hover:border-primary/50 text-foreground'
-              }`}
-              style={{
-                borderColor: selectedSubCategories.has(cat.id!)
-                  ? CATEGORY_COLORS[idx % CATEGORY_COLORS.length]
-                  : undefined,
-                backgroundColor: selectedSubCategories.has(cat.id!)
-                  ? CATEGORY_COLORS[idx % CATEGORY_COLORS.length]
-                  : 'transparent',
-              }}
-            >
-              {cat.icon || '📁'} {cat.name}
-            </button>
-          ))}
-        </div>
+        {/* Sub-Category Selector — searchable multi-select */}
+        <SubCategorySelector
+          subCategories={subCategoriesWithData}
+          parentCategories={(categories ?? []).filter(c => !c.parentId)}
+          selected={selectedSubCategories}
+          onChange={setSelectedSubCategories}
+        />
       </div>
 
       {selectedSubCategories.size > 0 && (

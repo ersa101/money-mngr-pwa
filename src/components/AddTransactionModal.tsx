@@ -34,6 +34,8 @@ import {
   RefreshCw,
   AlertTriangle,
   Check,
+  Copy,
+  Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -41,6 +43,8 @@ interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   editTransaction?: Transaction | null;
+  onCopy?: (transaction: Transaction) => void;
+  onDelete?: (transaction: Transaction) => void;
 }
 
 type TransactionType = 'EXPENSE' | 'INCOME' | 'TRANSFER';
@@ -49,6 +53,8 @@ export function AddTransactionModal({
   isOpen,
   onClose,
   editTransaction,
+  onCopy,
+  onDelete,
 }: AddTransactionModalProps) {
   const db = useDb()
   // Data from IndexedDB
@@ -979,6 +985,30 @@ export function AddTransactionModal({
           {/* ═══════════════════════════════════════════════════════ */}
           {/* ACTIONS */}
           {/* ═══════════════════════════════════════════════════════ */}
+          {editTransaction && (onCopy || onDelete) && (
+            <div className="flex gap-2 pt-2">
+              {onCopy && (
+                <Button
+                  onClick={() => { onCopy(editTransaction); onClose(); }}
+                  variant="outline"
+                  className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  onClick={() => onDelete(editTransaction)}
+                  variant="outline"
+                  className="flex-1 border-red-500/50 text-red-400 hover:bg-red-500/10"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
+          )}
           <div className="flex gap-3 pt-4">
             <Button
               onClick={onClose}

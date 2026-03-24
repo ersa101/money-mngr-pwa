@@ -15,23 +15,16 @@ export function useSnapshots() {
     try {
       const response = await fetch('/api/snapshots');
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      setSnapshots(data.snapshots);
-      setApiNotEnabled(false);
-    } catch (error: any) {
-      // Check if this is a "Google Drive API not enabled" error - handle silently
-      const errorMsg = error.message || '';
-      if (errorMsg.includes('Google Drive API has not been used') ||
-          errorMsg.includes('accessNotConfigured') ||
-          errorMsg.includes('API has not been enabled')) {
-        // Silently handle - user hasn't set up Google Drive yet
-        console.log('Google Drive API not enabled - snapshots feature unavailable');
+      if (data.error === 'TOKEN_EXPIRED') {
         setApiNotEnabled(true);
         setSnapshots([]);
-      } else {
-        // Only show toast for other errors (actual failures, not config issues)
-        toast.error(`Failed to load snapshots: ${errorMsg}`);
+        return;
       }
+      if (!response.ok) throw new Error(data.error);
+      setSnapshots(data.snapshots || []);
+      setApiNotEnabled(false);
+    } catch (error: any) {
+      toast.error(`Failed to load snapshots: ${error.message}`);
     } finally {
       setIsLoading(false);
     }

@@ -1,92 +1,61 @@
 import { google } from 'googleapis';
 
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  },
-  scopes: ['https://www.googleapis.com/auth/drive.file'],
-});
+const FOLDER_NAME = 'MoneyMngr_Snapshots';
 
-const drive = google.drive({ version: 'v3', auth });
+// ─── Auth from user's OAuth token ────────────────────────────────────────────
 
-const ROOT_FOLDER_NAME = 'MoneyMngr_Snapshots';
-
-/** Sanitize a userId for use as a Drive folder name. */
-function sanitizeUserId(userId: string): string {
-  return userId.replace(/[^a-zA-Z0-9_-]/g, '_');
+function getDriveClient(accessToken: string) {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  return google.drive({ version: 'v3', auth });
 }
 
-/**
- * Get (or create) the per-user subfolder inside the shared root folder.
- * Structure: MoneyMngr_Snapshots / user_<userId> /
- * This completely isolates each user's snapshots from each other.
- */
-async function getSnapshotsFolderId(userId: string): Promise<string> {
-  const safeUserId = sanitizeUserId(userId);
+// ─── Get or create snapshot folder ───────────────────────────────────────────
 
-  // 1. Get or create the shared root folder
-  let rootId: string;
-  const rootResponse = await drive.files.list({
-    q: `name='${ROOT_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+async function getSnapshotsFolderId(accessToken: string): Promise<string> {
+  const drive = getDriveClient(accessToken);
+
+  const res = await drive.files.list({
+    q: `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
     fields: 'files(id, name)',
+    spaces: 'drive',
   });
 
-  if (rootResponse.data.files && rootResponse.data.files.length > 0) {
-    rootId = rootResponse.data.files[0].id!;
-  } else {
-    const rootFolder = await drive.files.create({
-      requestBody: { name: ROOT_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' },
-      fields: 'id',
-    });
-    rootId = rootFolder.data.id!;
+  if (res.data.files && res.data.files.length > 0) {
+    return res.data.files[0].id!;
   }
 
-  // 2. Get or create the per-user subfolder inside root
-  const userFolderName = `user_${safeUserId}`;
-  const userResponse = await drive.files.list({
-    q: `name='${userFolderName}' and '${rootId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: 'files(id, name)',
-  });
-
-  if (userResponse.data.files && userResponse.data.files.length > 0) {
-    return userResponse.data.files[0].id!;
-  }
-
-  const userFolder = await drive.files.create({
+  // Create the folder
+  const folder = await drive.files.create({
     requestBody: {
-      name: userFolderName,
-      parents: [rootId],
+      name: FOLDER_NAME,
       mimeType: 'application/vnd.google-apps.folder',
     },
     fields: 'id',
   });
 
-  return userFolder.data.id!;
+  return folder.data.id!;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CREATE SNAPSHOT
-// ═══════════════════════════════════════════════════════════════
+// ─── Create Snapshot ──────────────────────────────────────────────────────────
 
 interface SnapshotData {
   accounts: any[];
   categories: any[];
   transactions: any[];
-  accountTypes?: any[];
-  accountGroups?: any[];
 }
 
-export async function createSnapshot(data: SnapshotData, userId: string): Promise<{
-  id: string;
-  name: string;
-  createdAt: string;
-}> {
-  const folderId = await getSnapshotsFolderId(userId);
+export async function createSnapshot(
+  accessToken: string,
+  data: SnapshotData
+): Promise<{ id: string; name: string; createdAt: string; folderLink: string }> {
+  const drive = getDriveClient(accessToken);
+  const folderId = await getSnapshotsFolderId(accessToken);
+
   const timestamp = new Date().toISOString();
   const fileName = `snapshot_${timestamp.replace(/[:.]/g, '-')}.json`;
 
-  const snapshotContent = {
+  const content = {
     version: '1.0',
     createdAt: timestamp,
     data,
@@ -105,71 +74,87 @@ export async function createSnapshot(data: SnapshotData, userId: string): Promis
     },
     media: {
       mimeType: 'application/json',
-      body: JSON.stringify(snapshotContent, null, 2),
+      body: JSON.stringify(content, null, 2),
     },
     fields: 'id, name, createdTime',
   });
+
+  const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
 
   return {
     id: file.data.id!,
     name: file.data.name!,
     createdAt: timestamp,
+    folderLink,
   };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// LIST SNAPSHOTS
-// ═══════════════════════════════════════════════════════════════
+// ─── List Snapshots ───────────────────────────────────────────────────────────
 
 export interface SnapshotInfo {
   id: string;
   name: string;
   createdAt: string;
   size: number;
+  folderLink: string;
 }
 
-export async function listSnapshots(userId: string): Promise<SnapshotInfo[]> {
-  const folderId = await getSnapshotsFolderId(userId);
+export async function listSnapshots(
+  accessToken: string
+): Promise<{ snapshots: SnapshotInfo[]; folderLink: string }> {
+  const drive = getDriveClient(accessToken);
+  const folderId = await getSnapshotsFolderId(accessToken);
 
-  const response = await drive.files.list({
+  const res = await drive.files.list({
     q: `'${folderId}' in parents and mimeType='application/json' and trashed=false`,
     fields: 'files(id, name, createdTime, size)',
     orderBy: 'createdTime desc',
+    spaces: 'drive',
   });
 
-  return (response.data.files || []).map(file => ({
+  const folderLink = `https://drive.google.com/drive/folders/${folderId}`;
+
+  const snapshots = (res.data.files || []).map((file) => ({
     id: file.id!,
     name: file.name!,
     createdAt: file.createdTime!,
     size: parseInt(file.size || '0'),
+    folderLink,
   }));
+
+  return { snapshots, folderLink };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// GET SNAPSHOT CONTENT
-// ═══════════════════════════════════════════════════════════════
+// ─── Get Snapshot Content ─────────────────────────────────────────────────────
 
-export async function getSnapshot(fileId: string): Promise<SnapshotData> {
-  const response = await drive.files.get({
-    fileId,
-    alt: 'media',
-  });
+export async function getSnapshot(
+  accessToken: string,
+  fileId: string
+): Promise<SnapshotData> {
+  const drive = getDriveClient(accessToken);
 
-  const content = response.data as any;
+  const res = await drive.files.get(
+    { fileId, alt: 'media' },
+    { responseType: 'json' }
+  );
+
+  const content = res.data as any;
   return content.data;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DELETE SNAPSHOT
-// ═══════════════════════════════════════════════════════════════
+// ─── Delete Snapshot ──────────────────────────────────────────────────────────
 
-export async function deleteSnapshot(fileId: string): Promise<void> {
+export async function deleteSnapshot(
+  accessToken: string,
+  fileId: string
+): Promise<void> {
+  const drive = getDriveClient(accessToken);
   await drive.files.delete({ fileId });
 }
 
 export const driveClient = {
-  createSnapshot,  // (data, userId)
-  listSnapshots,   // (userId)
-  getSnapshot,     // (fileId) — file ID is already user-specific, no userId needed
-  deleteSnapshot,  // (fileId)
+  createSnapshot,
+  listSnapshots,
+  getSnapshot,
+  deleteSnapshot,
 };

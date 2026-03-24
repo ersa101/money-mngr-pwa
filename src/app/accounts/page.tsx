@@ -10,7 +10,7 @@ import { AccountHeader } from '@/components/AccountHeader'
 import { AccountModal } from '@/components/AccountModal'
 import { DeleteConfirmDialog } from '@/components/DeleteConfirmDialog'
 import { Button } from '@/components/ui/button'
-import { Plus, Landmark, ChevronDown, ChevronRight } from 'lucide-react'
+import { Plus, Landmark, ChevronDown, ChevronRight, ChevronUp, Search, X } from 'lucide-react'
 
 // Account type display names
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
@@ -37,6 +37,13 @@ export default function AccountsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   // Track expanded state for both types and groups: "type-BANK", "group-BANK-MyGroup"
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['type-BANK']))
+
+  // Accounts table state
+  const [tableSortCol, setTableSortCol] = useState<keyof Account>('name')
+  const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc')
+  const [tableFilter, setTableFilter] = useState('')
+  const [editCell, setEditCell] = useState<{ id: number; field: keyof Account } | null>(null)
+  const [editVal, setEditVal] = useState('')
 
   // Live query to fetch all accounts
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
@@ -85,6 +92,48 @@ export default function AccountsPage() {
 
   // Account hooks
   const { createAccount, updateAccount, deleteAccount, loading, error } = useAccount()
+
+  // Sorted + filtered accounts for table
+  const tableAccounts = useMemo(() => {
+    if (!accounts) return []
+    let list = [...accounts]
+    if (tableFilter) {
+      const q = tableFilter.toLowerCase()
+      list = list.filter(a => a.name.toLowerCase().includes(q) || (a.group || '').toLowerCase().includes(q))
+    }
+    list.sort((a, b) => {
+      const av = a[tableSortCol] ?? ''
+      const bv = b[tableSortCol] ?? ''
+      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+      return tableSortDir === 'asc' ? cmp : -cmp
+    })
+    return list
+  }, [accounts, tableSortCol, tableSortDir, tableFilter])
+
+  const toggleTableSort = (col: keyof Account) => {
+    if (tableSortCol === col) setTableSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setTableSortCol(col); setTableSortDir('asc') }
+  }
+
+  const startCellEdit = (account: Account, field: keyof Account) => {
+    if (!account.id) return
+    setEditCell({ id: account.id, field })
+    setEditVal(String(account[field] ?? ''))
+  }
+
+  const saveCellEdit = async (account: Account) => {
+    if (!editCell || !account.id) return
+    const { field } = editCell
+    let newVal: any = editVal
+    if (field === 'thresholdValue') newVal = parseFloat(editVal) || 0
+    await updateAccount(account.id, { ...account, [field]: newVal })
+    setEditCell(null)
+  }
+
+  const toggleBoolCell = async (account: Account, field: 'includeInNetWorth' | 'isLiability') => {
+    if (!account.id) return
+    await updateAccount(account.id, { ...account, [field]: !account[field] })
+  }
 
   const handleAddClick = () => {
     setEditingAccount(null)
@@ -161,7 +210,7 @@ export default function AccountsPage() {
   ).length || 0
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b border-border bg-card/50">
         <div className="max-w-6xl mx-auto px-4 py-6">
@@ -333,6 +382,204 @@ export default function AccountsPage() {
           </div>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* ACCOUNTS TABLE */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {accounts && accounts.length > 0 && (
+        <div className="max-w-6xl mx-auto px-4 pb-8">
+          <div className="border border-border rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between p-4 bg-card border-b border-border">
+              <h2 className="font-semibold text-lg">All Accounts</h2>
+              <div className="relative w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+                <input
+                  type="text"
+                  placeholder="Filter by name / group..."
+                  value={tableFilter}
+                  onChange={e => setTableFilter(e.target.value)}
+                  className="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg bg-background border border-border focus:outline-none focus:border-primary"
+                />
+                {tableFilter && (
+                  <button onClick={() => setTableFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/30 text-muted-foreground uppercase text-xs">
+                  <tr>
+                    {([
+                      { key: 'name', label: 'Name' },
+                      { key: 'type', label: 'Type' },
+                      { key: 'balance', label: 'Balance' },
+                      { key: 'thresholdValue', label: 'Threshold' },
+                      { key: 'group', label: 'Group' },
+                      { key: 'color', label: 'Color' },
+                      { key: 'includeInNetWorth', label: 'Net Worth' },
+                      { key: 'isLiability', label: 'Liability' },
+                    ] as { key: keyof Account; label: string }[]).map(col => (
+                      <th
+                        key={col.key}
+                        onClick={() => col.key !== 'color' && toggleTableSort(col.key)}
+                        className={`px-3 py-2 text-left whitespace-nowrap select-none ${col.key !== 'color' ? 'cursor-pointer hover:text-foreground' : ''}`}
+                      >
+                        <span className="flex items-center gap-1">
+                          {col.label}
+                          {tableSortCol === col.key && (
+                            tableSortDir === 'asc'
+                              ? <ChevronUp size={12} />
+                              : <ChevronDown size={12} />
+                          )}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {tableAccounts.map(account => (
+                    <tr key={account.id} className="hover:bg-muted/20 transition-colors">
+                      {/* Name */}
+                      <td className="px-3 py-2 min-w-[120px]">
+                        {editCell?.id === account.id && editCell.field === 'name' ? (
+                          <input
+                            autoFocus
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => saveCellEdit(account)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCellEdit(account); if (e.key === 'Escape') setEditCell(null); }}
+                            className="w-full px-1 py-0.5 rounded bg-background border border-primary text-sm focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:underline"
+                            onClick={() => startCellEdit(account, 'name')}
+                          >
+                            {account.name}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Type */}
+                      <td className="px-3 py-2 min-w-[130px]">
+                        {editCell?.id === account.id && editCell.field === 'type' ? (
+                          <select
+                            autoFocus
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => saveCellEdit(account)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCellEdit(account); if (e.key === 'Escape') setEditCell(null); }}
+                            className="w-full px-1 py-0.5 rounded bg-background border border-primary text-sm focus:outline-none"
+                          >
+                            {['BANK','SAVINGS','CASH','WALLET','CREDIT_CARD','LOAN','INVESTMENT','PERSON','OTHER'].map(t => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:underline text-xs"
+                            onClick={() => startCellEdit(account, 'type')}
+                          >
+                            {account.type}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Balance (read-only) */}
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <span className={account.balance >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          ₹{account.balance.toLocaleString()}
+                        </span>
+                      </td>
+
+                      {/* Threshold */}
+                      <td className="px-3 py-2 min-w-[100px]">
+                        {editCell?.id === account.id && editCell.field === 'thresholdValue' ? (
+                          <input
+                            autoFocus
+                            type="number"
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => saveCellEdit(account)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCellEdit(account); if (e.key === 'Escape') setEditCell(null); }}
+                            className="w-full px-1 py-0.5 rounded bg-background border border-primary text-sm focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:underline"
+                            onClick={() => startCellEdit(account, 'thresholdValue')}
+                          >
+                            ₹{account.thresholdValue.toLocaleString()}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Group */}
+                      <td className="px-3 py-2 min-w-[100px]">
+                        {editCell?.id === account.id && editCell.field === 'group' ? (
+                          <input
+                            autoFocus
+                            value={editVal}
+                            onChange={e => setEditVal(e.target.value)}
+                            onBlur={() => saveCellEdit(account)}
+                            onKeyDown={e => { if (e.key === 'Enter') saveCellEdit(account); if (e.key === 'Escape') setEditCell(null); }}
+                            className="w-full px-1 py-0.5 rounded bg-background border border-primary text-sm focus:outline-none"
+                          />
+                        ) : (
+                          <span
+                            className="cursor-pointer hover:underline text-muted-foreground"
+                            onClick={() => startCellEdit(account, 'group')}
+                          >
+                            {account.group || '—'}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Color */}
+                      <td className="px-3 py-2">
+                        <input
+                          type="color"
+                          value={account.color || '#6366f1'}
+                          onChange={async e => {
+                            if (account.id) await updateAccount(account.id, { ...account, color: e.target.value })
+                          }}
+                          className="w-7 h-7 rounded cursor-pointer border border-border bg-transparent p-0"
+                          title="Pick color"
+                        />
+                      </td>
+
+                      {/* includeInNetWorth */}
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => toggleBoolCell(account, 'includeInNetWorth')}
+                          className={`w-9 h-5 rounded-full transition-colors ${account.includeInNetWorth !== false ? 'bg-primary' : 'bg-muted'}`}
+                          title={account.includeInNetWorth !== false ? 'Included in net worth' : 'Excluded from net worth'}
+                        >
+                          <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${account.includeInNetWorth !== false ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </td>
+
+                      {/* isLiability */}
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => toggleBoolCell(account, 'isLiability')}
+                          className={`w-9 h-5 rounded-full transition-colors ${account.isLiability ? 'bg-red-500' : 'bg-muted'}`}
+                          title={account.isLiability ? 'Is a liability' : 'Not a liability'}
+                        >
+                          <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${account.isLiability ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       <AccountModal

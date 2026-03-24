@@ -119,7 +119,8 @@ function deserializeRow(row: string[], headers: readonly string[]): Record<strin
       value = value === 'TRUE' || value === true;
     }
 
-    obj[header] = value || undefined;
+    // Preserve falsy-but-valid values (0, false); treat only '' / null / undefined as absent
+    obj[header] = (value === '' || value === null || value === undefined) ? undefined : value;
   });
   return obj;
 }
@@ -170,7 +171,47 @@ export async function restoreFromSheets(userId: string): Promise<BackupData> {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FAIN FEEDBACK — appends a single row to the FAIN_Feedback_Log sheet.
+// The sheet is created automatically if it doesn't exist (first row write).
+// ═══════════════════════════════════════════════════════════════
+
+const FEEDBACK_SHEET_NAME = 'FAIN_Feedback_Log';
+const FEEDBACK_HEADERS = [
+  'timestamp', 'feature_id', 'insight_type', 'insight_summary',
+  'user_response', 'user_reason', 'category_context', 'subcategory_context', 'month_year',
+];
+
+export async function appendFeedbackRow(row: string[]): Promise<void> {
+  // Ensure header row exists on first write
+  try {
+    const existing = await sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${FEEDBACK_SHEET_NAME}!A1:A1`,
+    });
+    if (!existing.data.values?.length) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${FEEDBACK_SHEET_NAME}!A1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [FEEDBACK_HEADERS] },
+      });
+    }
+  } catch (e: any) {
+    // Sheet may not exist — silently skip header
+  }
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${FEEDBACK_SHEET_NAME}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [row] },
+  });
+}
+
 export const sheetsClient = {
   backupToSheets,
   restoreFromSheets,
+  appendFeedbackRow,
 };

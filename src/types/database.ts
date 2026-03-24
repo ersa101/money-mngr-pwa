@@ -1,4 +1,4 @@
-// Based on V2 and V3 prompts
+// Based on V2 and V3 prompts — Phase 1 additions at bottom
 
 export interface ThresholdWarning {
   accountId: number
@@ -68,4 +68,53 @@ export interface Transaction {
   csvSubcategory?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+// ─── Phase 1 additions ────────────────────────────────────────────────────────
+
+export interface Budget {
+  id?: number;
+  categoryId: number;
+  categoryName: string;
+  monthlyLimit: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Goal {
+  id?: number;
+  name: string;
+  targetAmount: number;
+  currentAmount: number;
+  suggestedByAI: boolean;
+  createdAt: string;
+  status: 'ACTIVE' | 'COMPLETED' | 'DISMISSED';
+}
+
+export interface LifeEvent {
+  id?: number;
+  detectedMonth: string;   // "YYYY-MM"
+  eventType: string;
+  aiSummary: string;
+  confirmedByUser: boolean;
+  createdAt: string;
+}
+
+export interface FeedbackLog {
+  id?: number;
+  timestamp: string;
+  featureId: string;
+  insightType: string;
+  insightSummary: string;
+  userResponse: 'POSITIVE' | 'NEGATIVE' | number;
+  userReason?: string;
+  categoryContext?: string;
+  subcategoryContext?: string;
+  monthYear: string;
+  syncedToSheet: boolean;
+}
+
+export interface AppSetting {
+  key: string;
+  value: string;
 }
