@@ -48,6 +48,24 @@ export interface Category {
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
 export type TransactionSource = 'MANUAL' | 'CSV_IMPORT' | 'MAGIC_BOX';
 
+export interface FilterPreset {
+  id?: number;
+  name: string;
+  searchText?: string;
+  accountId?: number;
+  transactionType?: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'all';
+  categoryId?: number;
+  subCategoryId?: number;
+  // 'custom' stores fixed dates in dateOffsetStart/End
+  // 'billing-NN-MM' e.g. 'billing-26-25' computes current cycle at apply-time
+  dateOffsetType?: string;
+  dateOffsetStart?: string; // ISO date string, used when dateOffsetType === 'custom'
+  dateOffsetEnd?: string;   // ISO date string, used when dateOffsetType === 'custom'
+  amountMin?: number;
+  amountMax?: number;
+  createdAt?: string;
+}
+
 export interface Transaction {
   id?: number;
   date: string;

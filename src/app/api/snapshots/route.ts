@@ -1,19 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { driveClient } from '@/lib/google-drive';
 
-// GET: List snapshots for the authenticated user only
 export async function GET() {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!session?.accessToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
-  const userId = session.user.id;
 
   try {
-    const snapshots = await driveClient.listSnapshots(userId);
-    return NextResponse.json({ snapshots });
+    const { snapshots, folderLink } = await driveClient.listSnapshots(session.accessToken);
+    return NextResponse.json({ snapshots, folderLink });
   } catch (error: any) {
+    if (error?.code === 401 || error?.message?.includes('invalid_grant')) {
+      return NextResponse.json({ error: 'TOKEN_EXPIRED' }, { status: 401 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

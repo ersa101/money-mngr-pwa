@@ -23,6 +23,7 @@ interface BackupData {
   accounts: any[];
   categories: any[];
   transactions: any[];
+  filterPresets: any[];
 }
 
 const SHEETS_CONFIG = [
@@ -37,9 +38,71 @@ const SHEETS_CONFIG = [
   },
   {
     name: 'transactions',
-    headers: ['userId', 'id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'notes', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt'],
+    headers: ['userId', 'id', 'date', 'amount', 'transactionType', 'fromAccountId', 'toAccountId', 'categoryId', 'subCategoryId', 'description', 'notes', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt', 'updatedAt', 'categoryName', 'subCategoryName'],
+  },
+  {
+    name: 'filterPresets',
+    headers: ['userId', 'id', 'name', 'searchText', 'accountId', 'transactionType', 'categoryId', 'subCategoryId', 'dateOffsetType', 'dateOffsetStart', 'dateOffsetEnd', 'amountMin', 'amountMax', 'createdAt'],
   },
 ] as const;
+
+// Human-readable labels for the header row (row 1) of each sheet.
+// These are purely for display — restore logic uses SHEETS_CONFIG headers, not row 1.
+const DISPLAY_HEADERS: Record<string, string> = {
+  userId:              'User ID',
+  id:                  'ID',
+  name:                'Name',
+  type:                'Type',
+  balance:             'Balance',
+  thresholdValue:      'Threshold Value',
+  color:               'Color',
+  icon:                'Icon',
+  group:               'Group',
+  includeInNetWorth:   'Include In Net Worth',
+  isLiability:         'Is Liability',
+  parentId:            'Parent ID',
+  sortOrder:           'Sort Order',
+  createdAt:           'Created At',
+  updatedAt:           'Updated At',
+  date:                'Date',
+  amount:              'Amount',
+  transactionType:     'Transaction Type',
+  fromAccountId:       'From Account ID',
+  toAccountId:         'To Account ID',
+  categoryId:          'Category ID',
+  subCategoryId:       'SubCategory ID',
+  description:         'Note',
+  notes:               'Description',
+  status:              'Status',
+  source:              'Source',
+  currency:            'Currency',
+  linkedTransactionId: 'Linked Transaction ID',
+  categoryName:        'Category Name',
+  subCategoryName:     'SubCategory Name',
+  searchText:          'Search Text',
+  accountId:           'Account ID',
+  transactionType:     'Transaction Type',
+  dateOffsetType:      'Date Offset Type',
+  dateOffsetStart:     'Date Offset Start',
+  dateOffsetEnd:       'Date Offset End',
+  amountMin:           'Amount Min',
+  amountMax:           'Amount Max',
+};
+
+/** Write human-readable column labels to row 1 of a sheet. */
+async function writeHeaderRow(sheetName: string, headers: readonly string[]): Promise<void> {
+  const labels = headers.map((h) => DISPLAY_HEADERS[h] ?? h);
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [labels] },
+    });
+  } catch (error: any) {
+    if (!error.message?.includes('Unable to parse range')) throw error;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // HELPERS
@@ -113,13 +176,21 @@ function deserializeRow(row: string[], headers: readonly string[]): Record<strin
     else if (value === 'FALSE') value = false;
     else if (['balance', 'amount', 'thresholdValue', 'sortOrder'].includes(header)) {
       value = parseFloat(value) || 0;
+    } else if (['amountMin', 'amountMax'].includes(header)) {
+      value = value ? parseFloat(value) : undefined;
     } else if (header === 'id' || header.endsWith('Id')) {
       value = value ? parseInt(value) : undefined;
     } else if (['includeInNetWorth', 'isLiability'].includes(header)) {
-      value = value === 'TRUE' || value === true;
+      if (value === '') {
+        // Blank cell: use safe defaults — include in net worth by default, not a liability
+        value = header === 'includeInNetWorth' ? true : false;
+      } else {
+        value = value === 'TRUE' || value === true;
+      }
     }
 
-    obj[header] = value || undefined;
+    // Preserve falsy-but-valid values (0, false); treat only '' / null / undefined as absent
+    obj[header] = (value === '' || value === null || value === undefined) ? undefined : value;
   });
   return obj;
 }
@@ -140,11 +211,25 @@ export async function backupToSheets(data: BackupData, userId: string): Promise<
     const otherUsersRows = allRows.filter((row) => row[0] !== userId);
 
     // 3. Serialize this user's latest data (userId prepended)
-    const thisUserRows = sheetData.map((item) =>
+    // For transactions, enrich with human-readable category/subcategory names
+    let enrichedData = sheetData;
+    if (config.name === 'transactions') {
+      const categoryMap = new Map<number, string>();
+      (data.categories as any[]).forEach((cat: any) => {
+        if (cat.id != null) categoryMap.set(cat.id, cat.name);
+      });
+      enrichedData = sheetData.map((item: any) => ({
+        ...item,
+        categoryName: item.categoryId != null ? (categoryMap.get(item.categoryId) ?? '') : '',
+        subCategoryName: item.subCategoryId != null ? (categoryMap.get(item.subCategoryId) ?? '') : '',
+      }));
+    }
+    const thisUserRows = enrichedData.map((item) =>
       serializeRow(item, config.headers, userId)
     );
 
-    // 4. Write: preserve other users first, then this user's fresh data
+    // 4. Write header row (row 1) with human-readable labels, then data from row 2
+    await writeHeaderRow(config.name, config.headers);
     await writeAllRows(config.name, [...otherUsersRows, ...thisUserRows]);
   }
 }
@@ -153,16 +238,32 @@ export async function backupToSheets(data: BackupData, userId: string): Promise<
 // RESTORE — reads ONLY the calling user's rows.
 // ═══════════════════════════════════════════════════════════════
 
-export async function restoreFromSheets(userId: string): Promise<BackupData> {
-  const result: BackupData = { accounts: [], categories: [], transactions: [] };
+export async function restoreFromSheets(userIdCandidates: string[]): Promise<BackupData> {
+  const result: BackupData = { accounts: [], categories: [], transactions: [], filterPresets: [] };
 
   for (const config of SHEETS_CONFIG) {
     const allRows = await readAllRows(config.name);
 
-    // Filter to this user's rows only, then strip the userId column
-    const userRows = allRows
-      .filter((row) => row[0] === userId)
-      .map((row) => deserializeRow(row, config.headers));
+    // Try each candidate userId in order until we find matching rows.
+    // This handles cases where backups were created under a different userId
+    // format (e.g. Google sub vs email vs legacy value).
+    let userRows: Record<string, any>[] = [];
+    for (const candidate of userIdCandidates) {
+      const matched = allRows.filter((row) => row[0] === candidate);
+      if (matched.length > 0) {
+        userRows = matched.map((row) => deserializeRow(row, config.headers));
+        break;
+      }
+    }
+
+    // Last-resort: if still no match and only one unique user exists in the
+    // sheet (personal spreadsheet), use all rows — it must be this user.
+    if (userRows.length === 0 && allRows.length > 0) {
+      const uniqueUsers = new Set(allRows.map((row) => row[0]).filter(Boolean));
+      if (uniqueUsers.size === 1) {
+        userRows = allRows.map((row) => deserializeRow(row, config.headers));
+      }
+    }
 
     (result as any)[config.name] = userRows;
   }

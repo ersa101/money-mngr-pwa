@@ -1,10 +1,11 @@
 import Dexie, { type Table } from 'dexie';
-import type { Account, Category, Transaction, ThresholdWarning } from '@/types/database';
+import type { Account, Category, Transaction, ThresholdWarning, FilterPreset } from '@/types/database';
 
 export class MySubClassedDB extends Dexie {
   accounts!: Table<Account>;
   categories!: Table<Category>;
   transactions!: Table<Transaction>;
+  filterPresets!: Table<FilterPreset>;
 
   constructor() {
     super('moneyMngrDB');
@@ -26,10 +27,15 @@ export class MySubClassedDB extends Dexie {
       categories: '++id, name, type, parentId',  // Changed from &name to name (non-unique)
       transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId',
     });
+
+    // v4: Add filterPresets table
+    this.version(4).stores({
+      filterPresets: '++id, name',
+    });
   }
 }
 
 export const db = new MySubClassedDB();
 
 // Also re-export types for convenience in other files if needed
-export type { Account, Category, Transaction, ThresholdWarning };
+export type { Account, Category, Transaction, ThresholdWarning, FilterPreset };

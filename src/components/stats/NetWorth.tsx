@@ -6,6 +6,10 @@ import { useMemo, useState, useEffect } from 'react'
 import {
   LineChart,
   Line,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -15,104 +19,116 @@ import {
 } from 'recharts'
 
 type PeriodType = 'monthly' | 'quarterly' | 'semi-annual' | 'annual' | 'custom'
+type Granularity = '1D' | '1W' | '1M'
+type ChartType = 'line' | 'area' | 'stack'
 
 interface NetWorthProps {
   dateRange: { startDate: Date; endDate: Date }
   period?: PeriodType
 }
 
+// Custom tooltip for stacked bar view
+function StackTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  const assets = payload.find((p: any) => p.dataKey === 'assets')?.value || 0
+  const liabilities = payload.find((p: any) => p.dataKey === 'liabilities')?.value || 0
+  const total = assets + liabilities
+  const netWorth = assets - liabilities
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--background)',
+        border: '1px solid var(--border)',
+        padding: '12px',
+        borderRadius: '8px',
+        fontSize: 13,
+      }}
+    >
+      <p className="font-semibold mb-2">{label}</p>
+      <p style={{ color: '#22C55E' }}>
+        Assets: ₹{assets.toLocaleString()} ({total > 0 ? ((assets / total) * 100).toFixed(1) : '0'}%)
+      </p>
+      <p style={{ color: '#EF4444' }}>
+        Liabilities: ₹{liabilities.toLocaleString()} ({total > 0 ? ((liabilities / total) * 100).toFixed(1) : '0'}%)
+      </p>
+      <p style={{ color: '#8B5CF6', fontWeight: 600, marginTop: 6 }}>
+        Net Worth: ₹{netWorth.toLocaleString()}
+      </p>
+    </div>
+  )
+}
+
 export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   const db = useDb()
+  const [granularity, setGranularity] = useState<Granularity>('1W')
+  const [chartType, setChartType] = useState<ChartType>('line')
 
-  // Fetch accounts
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
-
-  // Fetch all transactions
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
-  // Calculate the number of days in the range to determine granularity
   const daysDiff = useMemo(() => {
     const diffTime = Math.abs(dateRange.endDate.getTime() - dateRange.startDate.getTime())
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
   }, [dateRange])
 
-  // X-axis granularity: user-selectable like a trading chart (1D, 1W, 1M)
-  type Granularity = '1D' | '1W' | '1M'
-  const [granularity, setGranularity] = useState<Granularity>('1W')
-
-  // Auto-set a sensible default whenever the date range changes
   useEffect(() => {
     if (daysDiff <= 35) setGranularity('1D')
     else if (daysDiff <= 120) setGranularity('1W')
     else setGranularity('1M')
   }, [daysDiff])
 
-  // Build the list of data-point dates based on the chosen granularity
   const getDataPoints = useMemo(() => {
     const points: Date[] = []
     const { startDate, endDate } = dateRange
 
     if (granularity === '1D') {
-      // One point per calendar day
       const current = new Date(startDate)
       while (current <= endDate) {
         points.push(new Date(current))
         current.setDate(current.getDate() + 1)
       }
     } else if (granularity === '1W') {
-      // One point per week
       const current = new Date(startDate)
       while (current <= endDate) {
         points.push(new Date(current))
         current.setDate(current.getDate() + 7)
       }
-      // Always cap with the actual end date for accuracy
       if (points.length === 0 || points[points.length - 1].getTime() < endDate.getTime()) {
         points.push(new Date(endDate))
       }
     } else {
-      // '1M': one point per calendar month (end-of-month)
       const current = new Date(startDate)
-      points.push(new Date(current)) // start anchor
-
-      // Advance to end of first month
+      points.push(new Date(current))
       current.setMonth(current.getMonth() + 1)
       current.setDate(0)
-
       while (current < endDate) {
         points.push(new Date(current))
         current.setMonth(current.getMonth() + 2)
         current.setDate(0)
       }
-      points.push(new Date(endDate)) // end anchor
+      points.push(new Date(endDate))
     }
 
     return points
   }, [dateRange, granularity])
 
-  // Helper to convert date to comparable timestamp
   const getDateTimestamp = (d: Date | string): number => {
     const date = d instanceof Date ? d : new Date(d)
     return isNaN(date.getTime()) ? 0 : date.getTime()
   }
 
-  // Format x-axis label based on granularity
   const formatDateLabel = (date: Date): string => {
     if (granularity === '1D' || granularity === '1W') {
       return date.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
     }
-    // '1M': show month + 2-digit year
     return date.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
   }
 
-  // Calculate net worth history
   const netWorthData = useMemo(() => {
     if (!accounts || !allTransactions) return []
 
-    // Filter accounts that should be included in net worth
     const includedAccounts = accounts.filter(acc => acc.includeInNetWorth !== false)
 
-    // Set day end timestamp for comparison (end of day)
     const getDayEnd = (day: Date): number => {
       const d = new Date(day)
       d.setHours(23, 59, 59, 999)
@@ -124,37 +140,28 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
       let totalLiabilities = 0
       const dayEndTs = getDayEnd(day)
 
-      // Calculate balance for each account as of this day
       includedAccounts.forEach((account) => {
         let balance = account.balance
 
-        // Replay transactions backward from current balance
         allTransactions.forEach((tx) => {
           const txTs = getDateTimestamp(tx.date)
           if (txTs > dayEndTs) {
-            // This transaction happened after our day, so we need to reverse it
-            // For expense: fromAccount decreased, so we add back
-            // For income: fromAccount increased, so we subtract back
             if (tx.fromAccountId === account.id) {
               if (tx.transactionType === 'EXPENSE' || tx.transactionType === 'TRANSFER') {
-                balance += tx.amount // Reverse the deduction
+                balance += tx.amount
               } else if (tx.transactionType === 'INCOME') {
-                balance -= tx.amount // Reverse the addition
+                balance -= tx.amount
               }
             }
-            // If it went to this account as a transfer, reverse the credit
             if (tx.toAccountId === account.id && tx.transactionType === 'TRANSFER') {
-              balance -= tx.amount // Reverse the addition
+              balance -= tx.amount
             }
           }
         })
 
-        // Categorize as asset or liability based on isLiability flag or negative balance
         if (account.isLiability) {
-          // For liability accounts, the balance represents what you owe
           totalLiabilities += Math.abs(balance)
         } else if (balance < 0) {
-          // Negative balance on non-liability account is also a liability
           totalLiabilities += Math.abs(balance)
         } else {
           totalAssets += balance
@@ -171,8 +178,27 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
     })
   }, [accounts, allTransactions, getDataPoints, granularity])
 
+  const hasIncludedAccounts = useMemo(() => {
+    if (!accounts) return true
+    return accounts.some(acc => acc.includeInNetWorth !== false)
+  }, [accounts])
+
   if (!accounts || !allTransactions) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
+  }
+
+  if (!hasIncludedAccounts) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-6">
+        <h3 className="text-lg font-semibold mb-4">Net Worth Trend</h3>
+        <div className="text-center py-8 space-y-2">
+          <p className="text-muted-foreground">No accounts are included in the net worth calculation.</p>
+          <p className="text-sm text-muted-foreground">
+            Go to <strong>Accounts</strong> and enable the net worth toggle for at least one account.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   if (netWorthData.length === 0) {
@@ -189,35 +215,51 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   const previousNetWorth = netWorthData[0]?.netWorth || 0
   const netWorthChange = currentNetWorth - previousNetWorth
   const changePercent =
-    previousNetWorth !== 0
-      ? ((netWorthChange / previousNetWorth) * 100).toFixed(1)
-      : '0'
+    previousNetWorth !== 0 ? ((netWorthChange / previousNetWorth) * 100).toFixed(1) : '0'
 
   return (
     <div className="bg-card rounded-lg border border-border p-6">
       <div className="mb-6">
-        {/* Title row + granularity picker */}
-        <div className="flex items-center justify-between mb-4">
+        {/* Title row + controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold">Net Worth Trend</h3>
-          {/* Scale selector — like trading chart intervals */}
-          <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
-            {(['1D', '1W', '1M'] as const).map((g) => (
-              <button
-                key={g}
-                onClick={() => setGranularity(g)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                  granularity === g
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                {g}
-              </button>
-            ))}
+          <div className="flex gap-2">
+            {/* Chart type toggle */}
+            <div className="flex gap-1 bg-muted rounded-lg p-1">
+              {(['line', 'area', 'stack'] as const).map(ct => (
+                <button
+                  key={ct}
+                  onClick={() => setChartType(ct)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    chartType === ct
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {ct === 'line' ? 'Line' : ct === 'area' ? 'Area' : 'Stack'}
+                </button>
+              ))}
+            </div>
+            {/* Granularity selector */}
+            <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
+              {(['1D', '1W', '1M'] as const).map(g => (
+                <button
+                  key={g}
+                  onClick={() => setGranularity(g)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    granularity === g
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Net Worth Stats */}
+        {/* Stats cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <div className="bg-blue-50 dark:bg-blue-950 rounded p-4 border border-blue-200 dark:border-blue-800">
             <p className="text-xs text-muted-foreground mb-1">Current Net Worth</p>
@@ -227,15 +269,11 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
           </div>
           <div className="bg-green-50 dark:bg-green-950 rounded p-4 border border-green-200 dark:border-green-800">
             <p className="text-xs text-muted-foreground mb-1">Total Assets</p>
-            <p className="text-2xl font-bold text-green-600">
-              ₹{currentAssets.toLocaleString()}
-            </p>
+            <p className="text-2xl font-bold text-green-600">₹{currentAssets.toLocaleString()}</p>
           </div>
           <div className="bg-red-50 dark:bg-red-950 rounded p-4 border border-red-200 dark:border-red-800">
             <p className="text-xs text-muted-foreground mb-1">Total Liabilities</p>
-            <p className="text-2xl font-bold text-red-600">
-              ₹{currentLiabilities.toLocaleString()}
-            </p>
+            <p className="text-2xl font-bold text-red-600">₹{currentLiabilities.toLocaleString()}</p>
           </div>
           <div
             className={`rounded p-4 border ${
@@ -245,11 +283,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
             }`}
           >
             <p className="text-xs text-muted-foreground mb-1">Period Change</p>
-            <p
-              className={`text-2xl font-bold ${
-                netWorthChange >= 0 ? 'text-emerald-600' : 'text-orange-600'
-              }`}
-            >
+            <p className={`text-2xl font-bold ${netWorthChange >= 0 ? 'text-emerald-600' : 'text-orange-600'}`}>
               {netWorthChange >= 0 ? '+' : ''}₹{netWorthChange.toLocaleString()}
             </p>
             <p className="text-xs text-muted-foreground mt-1">({changePercent}%)</p>
@@ -257,72 +291,123 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={350}>
-        <LineChart data={netWorthData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 12 }}
-            angle={-45}
-            textAnchor="end"
-            height={80}
-          />
-          <YAxis tick={{ fontSize: 12 }} />
-          <Tooltip
-            formatter={(value: any) => `₹${value.toLocaleString()}`}
-            labelFormatter={(label, payload) => {
-              const item = payload?.[0]?.payload
-              return item?.fullDate ? `Date: ${item.fullDate}` : `Date: ${label}`
-            }}
-            contentStyle={{
-              backgroundColor: 'var(--background)',
-              border: '1px solid var(--border)',
-            }}
-          />
-          <Legend />
+      {/* Line chart: liabilities on secondary Y-axis so it stays visible at scale */}
+      {chartType === 'line' && (
+        <ResponsiveContainer width="100%" height={350}>
+          <LineChart data={netWorthData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 12 }} angle={-45} textAnchor="end" height={80} />
+            <YAxis yAxisId="left" tick={{ fontSize: 12 }} domain={['auto', 'auto']} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+            <Tooltip
+              formatter={(value: any, name: string) => [`₹${Number(value).toLocaleString()}`, name]}
+              labelFormatter={(label, payload) => {
+                const item = payload?.[0]?.payload
+                return item?.fullDate ? `Date: ${item.fullDate}` : `Date: ${label}`
+              }}
+              contentStyle={{
+                backgroundColor: 'var(--background)',
+                border: '1px solid var(--border)',
+              }}
+            />
+            <Legend />
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="netWorth"
+              name="Net Worth"
+              stroke="#8B5CF6"
+              strokeWidth={2}
+              dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
+              activeDot={{ r: 6 }}
+              isAnimationActive={true}
+            />
+            <Line
+              yAxisId="left"
+              type="monotone"
+              dataKey="assets"
+              name="Assets"
+              stroke="#22C55E"
+              strokeWidth={2}
+              dot={{ fill: '#22C55E', strokeWidth: 2, r: 3 }}
+              activeDot={{ r: 5 }}
+              isAnimationActive={true}
+            />
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="liabilities"
+              name="Liabilities"
+              stroke="#EF4444"
+              strokeWidth={2}
+              dot={{ fill: '#EF4444', strokeWidth: 2, r: 3 }}
+              activeDot={{ r: 5 }}
+              isAnimationActive={true}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
 
-          {/* Net Worth - Purple */}
-          <Line
-            type="monotone"
-            dataKey="netWorth"
-            name="Net Worth"
-            stroke="#8B5CF6"
-            strokeWidth={2}
-            dot={{ fill: '#8B5CF6', strokeWidth: 2, r: 4 }}
-            activeDot={{ r: 6 }}
-            isAnimationActive={true}
-          />
+      {/* Area chart: filled areas — assets (green) and net worth (purple) on left axis, liabilities (red) on right */}
+      {chartType === 'area' && (
+        <ResponsiveContainer width="100%" height={350}>
+          <AreaChart data={netWorthData}>
+            <defs>
+              <linearGradient id="colorAssets" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#22C55E" stopOpacity={0.02} />
+              </linearGradient>
+              <linearGradient id="colorNetWorth" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#8B5CF6" stopOpacity={0.02} />
+              </linearGradient>
+              <linearGradient id="colorLiabilities" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#EF4444" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 12 }} angle={-45} textAnchor="end" height={80} />
+            <YAxis yAxisId="left" tick={{ fontSize: 12 }} domain={['auto', 'auto']} />
+            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
+            <Tooltip
+              formatter={(value: any, name: string) => [`₹${Number(value).toLocaleString()}`, name]}
+              labelFormatter={(label, payload) => {
+                const item = payload?.[0]?.payload
+                return item?.fullDate ? `Date: ${item.fullDate}` : `Date: ${label}`
+              }}
+              contentStyle={{ backgroundColor: 'var(--background)', border: '1px solid var(--border)' }}
+            />
+            <Legend />
+            <Area yAxisId="left" type="monotone" dataKey="assets" name="Assets"
+              stroke="#22C55E" strokeWidth={2} fill="url(#colorAssets)" dot={false} activeDot={{ r: 5 }} />
+            <Area yAxisId="left" type="monotone" dataKey="netWorth" name="Net Worth"
+              stroke="#8B5CF6" strokeWidth={2} fill="url(#colorNetWorth)" dot={false} activeDot={{ r: 5 }} />
+            <Area yAxisId="right" type="monotone" dataKey="liabilities" name="Liabilities"
+              stroke="#EF4444" strokeWidth={2} fill="url(#colorLiabilities)" dot={false} activeDot={{ r: 5 }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
 
-          {/* Assets - Green */}
-          <Line
-            type="monotone"
-            dataKey="assets"
-            name="Assets"
-            stroke="#22C55E"
-            strokeWidth={2}
-            dot={{ fill: '#22C55E', strokeWidth: 2, r: 3 }}
-            activeDot={{ r: 5 }}
-            isAnimationActive={true}
-          />
+      {/* Stack chart: assets + liabilities stacked to show composition vs time */}
+      {chartType === 'stack' && (
+        <ResponsiveContainer width="100%" height={350}>
+          <BarChart data={netWorthData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" tick={{ fontSize: 12 }} angle={-45} textAnchor="end" height={80} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip content={<StackTooltip />} />
+            <Legend />
+            <Bar dataKey="assets" name="Assets" stackId="a" fill="#22C55E" />
+            <Bar dataKey="liabilities" name="Liabilities" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
 
-          {/* Liabilities - Red */}
-          <Line
-            type="monotone"
-            dataKey="liabilities"
-            name="Liabilities"
-            stroke="#EF4444"
-            strokeWidth={2}
-            dot={{ fill: '#EF4444', strokeWidth: 2, r: 3 }}
-            activeDot={{ r: 5 }}
-            isAnimationActive={true}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-
-      {/* Explanation */}
       <div className="mt-6 p-4 bg-muted rounded border border-border">
         <p className="text-sm text-muted-foreground">
-          <strong>Net Worth</strong> is the sum of all your account balances. It's the single most important metric for long-term financial health. A steadily increasing net worth indicates you're building wealth over time.
+          <strong>Net Worth</strong> = Assets − Liabilities. In Stack view, bar height shows the combined gross scale;
+          hover to see each value and its percentage contribution.
         </p>
       </div>
     </div>

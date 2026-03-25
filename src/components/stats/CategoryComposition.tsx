@@ -16,6 +16,10 @@ import { resolveCategorySync, buildCategoryMaps } from '@/lib/categoryUtils'
 
 interface CategoryCompositionProps {
   dateRange: { startDate: Date; endDate: Date }
+  /** When provided, locks the chart to this type and hides the toggle. */
+  type?: 'EXPENSE' | 'INCOME'
+  /** Called whenever the user clicks a category slice or card. */
+  onCategoryClick?: (name: string) => void
 }
 
 const COLORS = [
@@ -29,9 +33,9 @@ const COLORS = [
   '#F97316',
 ]
 
-export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
+export function CategoryComposition({ dateRange, type, onCategoryClick }: CategoryCompositionProps) {
   const [transactionType, setTransactionType] = useState<'EXPENSE' | 'INCOME'>(
-    'EXPENSE'
+    type ?? 'EXPENSE'
   )
   const [selectedCategory, setSelectedCategory] = useState<number | null>(null)
   const db = useDb()
@@ -97,8 +101,8 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
 
   if (categoryData.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        No {transactionType.toLowerCase()} data for this period
+      <div className="bg-card rounded-lg border border-border p-6 text-center py-8 text-muted-foreground">
+        No {(type ?? transactionType).toLowerCase()} data for this period
       </div>
     )
   }
@@ -108,35 +112,33 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
   return (
     <div className="bg-card rounded-lg border border-border p-6">
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">Category Composition</h3>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              setTransactionType('EXPENSE')
-              setSelectedCategory(null)
-            }}
-            className={`px-3 py-1 rounded text-sm font-medium transition ${
-              transactionType === 'EXPENSE'
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            Expenses
-          </button>
-          <button
-            onClick={() => {
-              setTransactionType('INCOME')
-              setSelectedCategory(null)
-            }}
-            className={`px-3 py-1 rounded text-sm font-medium transition ${
-              transactionType === 'INCOME'
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            Income
-          </button>
-        </div>
+        <h3 className="text-lg font-semibold">
+          {type === 'EXPENSE' ? 'Expense' : type === 'INCOME' ? 'Income' : 'Category'} Composition
+        </h3>
+        {!type && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setTransactionType('EXPENSE'); setSelectedCategory(null) }}
+              className={`px-3 py-1 rounded text-sm font-medium transition ${
+                transactionType === 'EXPENSE'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              Expenses
+            </button>
+            <button
+              onClick={() => { setTransactionType('INCOME'); setSelectedCategory(null) }}
+              className={`px-3 py-1 rounded text-sm font-medium transition ${
+                transactionType === 'INCOME'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              Income
+            </button>
+          </div>
+        )}
       </div>
 
       <ResponsiveContainer width="100%" height={300}>
@@ -150,11 +152,10 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
             outerRadius={100}
             fill="#8884d8"
             dataKey="value"
-            onClick={(entry) =>
-              setSelectedCategory(
-                selectedCategory === entry.id ? null : entry.id
-              )
-            }
+            onClick={(entry) => {
+              setSelectedCategory(selectedCategory === entry.id ? null : entry.id)
+              onCategoryClick?.(entry.name)
+            }}
           >
             {categoryData.map((entry, index) => (
               <Cell
@@ -184,11 +185,10 @@ export function CategoryComposition({ dateRange }: CategoryCompositionProps) {
         {categoryData.map((cat, index) => (
           <div
             key={`cat-${cat.id}-${index}`}
-            onClick={() =>
-              setSelectedCategory(
-                selectedCategory === cat.id ? null : cat.id
-              )
-            }
+            onClick={() => {
+              setSelectedCategory(selectedCategory === cat.id ? null : cat.id)
+              onCategoryClick?.(cat.name)
+            }}
             className={`p-3 rounded border cursor-pointer transition ${
               selectedCategory === cat.id
                 ? 'border-primary bg-primary/5'

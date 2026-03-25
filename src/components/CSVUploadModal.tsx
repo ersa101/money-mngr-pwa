@@ -8,9 +8,10 @@ import { ActionLogger } from '@/lib/actionLogger'
 
 interface CSVUploadProps {
   onSuccess?: () => void
+  trigger?: React.ReactNode
 }
 
-export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
+export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
   const db = useDb()
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -70,13 +71,19 @@ export function CSVUploadModal({ onSuccess }: CSVUploadProps) {
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-medium hover:bg-green-700 transition-colors"
-      >
-        <Upload size={18} />
-        Import CSV
-      </button>
+      {trigger ? (
+        <span style={{ display: 'contents' }} onClick={() => setIsOpen(true)}>
+          {trigger}
+        </span>
+      ) : (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-medium hover:bg-green-700 transition-colors"
+        >
+          <Upload size={18} />
+          Import CSV
+        </button>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">

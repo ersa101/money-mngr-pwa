@@ -21,12 +21,14 @@ interface TransactionListProps {
   transactions: Transaction[];
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
+  onTap?: (transaction: Transaction) => void;
 }
 
 export function TransactionList({
   transactions,
   onEdit,
-  onDelete
+  onDelete,
+  onTap,
 }: TransactionListProps) {
   const db = useDb()
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
@@ -108,7 +110,7 @@ export function TransactionList({
               size="sm"
               onClick={() => setShowBulkEdit(true)}
               disabled={selectedIds.size === 0}
-              className="border-slate-600 text-slate-300"
+              className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
             >
               <Pencil className="w-4 h-4 mr-1" />
               Edit
@@ -119,7 +121,7 @@ export function TransactionList({
               size="sm"
               onClick={() => setShowBulkDelete(true)}
               disabled={selectedIds.size === 0}
-              className="border-red-500/50 text-red-400 hover:bg-red-500/10"
+              className="border-red-500/50 bg-slate-700 text-red-400 hover:bg-red-500/20"
             >
               <Trash2 className="w-4 h-4 mr-1" />
               Delete
@@ -168,6 +170,7 @@ export function TransactionList({
                 categories={categories}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onTap={onTap}
               />
             </div>
           </div>

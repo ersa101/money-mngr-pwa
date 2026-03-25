@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Navigation } from "@/components/Navigation";
-import { BottomTabNavigation } from "@/components/BottomTabNavigation";
 import { AuthProvider } from "@/components/AuthProvider";
 import { DbProvider } from "@/contexts/DbContext";
 import { AppContent } from "@/components/AppContent";
@@ -67,7 +66,6 @@ export default function RootLayout({
             <AppContent>
               {children}
             </AppContent>
-            <BottomTabNavigation />
             <DevInstanceCheck />
           </DbProvider>
         </AuthProvider>

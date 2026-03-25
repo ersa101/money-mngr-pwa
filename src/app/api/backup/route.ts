@@ -8,7 +8,8 @@ export async function POST(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const userId = session.user.id;
+  // Use email as the userId so column A is human-readable in the sheet.
+  const userId = session.user.email || session.user.id;
 
   try {
     const data = await request.json();

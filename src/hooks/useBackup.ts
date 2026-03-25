@@ -20,11 +20,12 @@ export function useBackup() {
       const accounts = await db.accounts.toArray();
       const categories = await db.categories.toArray();
       const transactions = await db.transactions.toArray();
+      const filterPresets = await db.filterPresets.toArray();
 
       const response = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts, categories, transactions }),
+        body: JSON.stringify({ accounts, categories, transactions, filterPresets }),
       });
 
       const result = await response.json();
@@ -59,10 +60,21 @@ export function useBackup() {
         throw new Error(result.error || 'Restore failed');
       }
 
-      await db.transaction('rw', db.accounts, db.categories, db.transactions, async () => {
+      const totalRecords =
+        (result.data?.accounts?.length || 0) +
+        (result.data?.categories?.length || 0) +
+        (result.data?.transactions?.length || 0) +
+        (result.data?.filterPresets?.length || 0);
+
+      if (totalRecords === 0) {
+        throw new Error('No backup data found for your account in Google Sheets. Backup first or check your account.');
+      }
+
+      await db.transaction('rw', db.accounts, db.categories, db.transactions, db.filterPresets, async () => {
         await db.accounts.clear();
         await db.categories.clear();
         await db.transactions.clear();
+        await db.filterPresets.clear();
 
         if (result.data?.accounts?.length) {
           await db.accounts.bulkAdd(result.data.accounts);
@@ -72,6 +84,9 @@ export function useBackup() {
         }
         if (result.data?.transactions?.length) {
           await db.transactions.bulkAdd(result.data.transactions);
+        }
+        if (result.data?.filterPresets?.length) {
+          await db.filterPresets.bulkAdd(result.data.filterPresets);
         }
       });
 

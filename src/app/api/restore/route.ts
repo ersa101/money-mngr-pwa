@@ -8,10 +8,16 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const userId = session.user.id;
+  // Build a list of candidate IDs to try in order:
+  // 1. Email — primary (human-readable, used by current backup)
+  // 2. Google sub — fallback for backups created before email was adopted
+  const userIdCandidates = [
+    session.user.email,
+    session.user.id,
+  ].filter((v): v is string => !!v);
 
   try {
-    const data = await sheetsClient.restoreFromSheets(userId);
+    const data = await sheetsClient.restoreFromSheets(userIdCandidates);
 
     return NextResponse.json({
       success: true,

@@ -207,8 +207,8 @@ export async function parseCSV(file: File): Promise<CSVRow[]> {
             }
           }
 
-          // basic validation: require date and amount; account optional (some CSVs use separate columns)
-          if (row.date && row.amount) {
+          // Only require date — amount can be blank (treated as 0) or zero
+          if (row.date) {
             rows.push(row)
           }
         }
@@ -338,14 +338,10 @@ export async function importTransactionsFromCSV(
     if (!row) continue
 
     try {
-      // Parse amount - skip zero amounts silently (common in CSV exports)
+      // Parse amount — blank or missing treated as 0; negative values rejected
       const amount = parseFloat(row.amount || '0')
       if (isNaN(amount) || amount < 0) {
         errors.push(`Invalid amount (${row.amount}) in row ${rowIndex + 2}`)
-        continue
-      }
-      if (amount === 0) {
-        // Skip zero-amount transactions silently - these are typically placeholders
         continue
       }
 
@@ -439,7 +435,8 @@ export async function importTransactionsFromCSV(
         categoryId: isTransfer ? undefined : categoryId,
         subCategoryId: isTransfer ? undefined : subCategoryId,
         toAccountId: isTransfer ? toAccountId : undefined,
-        description: row.description || row.note || row.category || 'Imported',
+        description: row.note || undefined,
+        notes: row.description || undefined,
         transactionType,
         status: 'CONFIRMED',
         source: 'CSV_IMPORT',

@@ -15,23 +15,16 @@ export function useSnapshots() {
     try {
       const response = await fetch('/api/snapshots');
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
-      setSnapshots(data.snapshots);
-      setApiNotEnabled(false);
-    } catch (error: any) {
-      // Check if this is a "Google Drive API not enabled" error - handle silently
-      const errorMsg = error.message || '';
-      if (errorMsg.includes('Google Drive API has not been used') ||
-          errorMsg.includes('accessNotConfigured') ||
-          errorMsg.includes('API has not been enabled')) {
-        // Silently handle - user hasn't set up Google Drive yet
-        console.log('Google Drive API not enabled - snapshots feature unavailable');
+      if (data.error === 'TOKEN_EXPIRED') {
         setApiNotEnabled(true);
         setSnapshots([]);
-      } else {
-        // Only show toast for other errors (actual failures, not config issues)
-        toast.error(`Failed to load snapshots: ${errorMsg}`);
+        return;
       }
+      if (!response.ok) throw new Error(data.error);
+      setSnapshots(data.snapshots || []);
+      setApiNotEnabled(false);
+    } catch (error: any) {
+      toast.error(`Failed to load snapshots: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -44,11 +37,12 @@ export function useSnapshots() {
       const accounts = await db.accounts.toArray();
       const categories = await db.categories.toArray();
       const transactions = await db.transactions.toArray();
+      const filterPresets = await db.filterPresets.toArray();
 
       const response = await fetch('/api/snapshots/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts, categories, transactions }),
+        body: JSON.stringify({ accounts, categories, transactions, filterPresets }),
       });
 
       const result = await response.json();
@@ -77,10 +71,11 @@ export function useSnapshots() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error);
 
-      await db.transaction('rw', db.accounts, db.categories, db.transactions, async () => {
+      await db.transaction('rw', db.accounts, db.categories, db.transactions, db.filterPresets, async () => {
         await db.accounts.clear();
         await db.categories.clear();
         await db.transactions.clear();
+        await db.filterPresets.clear();
 
         if (result.data?.accounts?.length) {
           await db.accounts.bulkAdd(result.data.accounts);
@@ -90,6 +85,9 @@ export function useSnapshots() {
         }
         if (result.data?.transactions?.length) {
           await db.transactions.bulkAdd(result.data.transactions);
+        }
+        if (result.data?.filterPresets?.length) {
+          await db.filterPresets.bulkAdd(result.data.filterPresets);
         }
       });
 

@@ -34,6 +34,8 @@ import {
   RefreshCw,
   AlertTriangle,
   Check,
+  Copy,
+  Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -41,6 +43,8 @@ interface AddTransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   editTransaction?: Transaction | null;
+  onCopy?: (transaction: Transaction) => void;
+  onDelete?: (transaction: Transaction) => void;
 }
 
 type TransactionType = 'EXPENSE' | 'INCOME' | 'TRANSFER';
@@ -49,6 +53,8 @@ export function AddTransactionModal({
   isOpen,
   onClose,
   editTransaction,
+  onCopy,
+  onDelete,
 }: AddTransactionModalProps) {
   const db = useDb()
   // Data from IndexedDB
@@ -118,7 +124,7 @@ export function AddTransactionModal({
         setCategoryError('');
         setDate(new Date(editTransaction.date).toISOString().slice(0, 16));
         setNote(editTransaction.description || '');
-        setDescription('');
+        setDescription(editTransaction.notes || '');
         setParseSource(null);
       } else {
         // New transaction - reset form
@@ -342,10 +348,6 @@ export function AddTransactionModal({
     }
 
     // Validation
-    if (!note.trim()) {
-      toast.error('Please enter a note');
-      return;
-    }
     if (!amount || parseFloat(amount) <= 0) {
       toast.error('Please enter a valid amount');
       return;
@@ -434,7 +436,7 @@ export function AddTransactionModal({
             toAccountId: toAccountId ? parseInt(toAccountId) : undefined,
             categoryId: categoryId ? parseInt(categoryId) : undefined,
             subCategoryId: subCategoryId ? parseInt(subCategoryId) : undefined,
-            description: note.trim(),
+            description: note.trim() || undefined,
             notes: description.trim() || undefined,
             updatedAt: now,
           });
@@ -623,7 +625,7 @@ export function AddTransactionModal({
                     disabled={isParsingRegex || isParsingAI}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700"
+                    className="flex-1 border-slate-600 bg-slate-700 text-white hover:bg-slate-600"
                   >
                     {isParsingRegex ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -638,7 +640,7 @@ export function AddTransactionModal({
                     disabled={isParsingRegex || isParsingAI}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+                    className="flex-1 border-purple-500/50 bg-slate-700 text-purple-300 hover:bg-purple-500/20"
                   >
                     {isParsingAI ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -924,11 +926,11 @@ export function AddTransactionModal({
           </div>
 
           {/* ═══════════════════════════════════════════════════════ */}
-          {/* NOTE (REQUIRED) with Autocomplete */}
+          {/* NOTE (OPTIONAL) with Autocomplete */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div className="relative">
             <label className="block text-sm text-slate-400 mb-2">
-              Note *
+              Note
             </label>
             <Input
               type="text"
@@ -979,11 +981,35 @@ export function AddTransactionModal({
           {/* ═══════════════════════════════════════════════════════ */}
           {/* ACTIONS */}
           {/* ═══════════════════════════════════════════════════════ */}
+          {editTransaction && (onCopy || onDelete) && (
+            <div className="flex gap-2 pt-2">
+              {onCopy && (
+                <Button
+                  onClick={() => { onCopy(editTransaction); onClose(); }}
+                  variant="outline"
+                  className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy
+                </Button>
+              )}
+              {onDelete && (
+                <Button
+                  onClick={() => onDelete(editTransaction)}
+                  variant="outline"
+                  className="flex-1 border-red-500/50 bg-slate-700 text-red-400 hover:bg-red-500/20"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
+              )}
+            </div>
+          )}
           <div className="flex gap-3 pt-4">
             <Button
               onClick={onClose}
               variant="outline"
-              className="flex-1 border-slate-600 text-slate-300"
+              className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
             >
               Cancel
             </Button>

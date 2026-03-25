@@ -178,7 +178,7 @@ export function BulkEditModal({
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1 border-slate-600"
+              className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
             >
               Cancel
             </Button>
