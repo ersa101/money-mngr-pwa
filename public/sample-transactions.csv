@@ -1,0 +1,11 @@
+Account,Category,Subcategory,Amount,Description,Date
+HDFC Bank,Food,Local,150.50,Lunch at cafe,2025-01-05
+HDFC Bank,Food,Online,45.75,Zomato order,2025-01-04
+HDFC Bank,Transport,Local,50.00,Auto ride,2025-01-03
+Cash,Shopping,Premium,1200.25,Shoes,2025-01-02
+Paytm Wallet,Bills,Monthly,500.00,Electricity bill,2025-01-01
+HDFC Bank,Health,Doctor,800.00,Medical checkup,2024-12-31
+Cash,Food,Local,75.50,Market groceries,2024-12-30
+HDFC Bank,Transport,Premium,5000.00,Flight ticket,2024-12-28
+Paytm Wallet,Entertainment,Movies,300.00,Movie tickets,2024-12-27
+HDFC Bank,Shopping,Online,2500.50,Laptop accessories,2024-12-25

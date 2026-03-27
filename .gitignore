@@ -97,3 +97,8 @@ Screenshot_*.jpg
 
 # Keep PWA icons
 !public/icons/*.png
+
+# Keep public static assets needed by the app
+!public/*.csv
+!public/*.html
+!public/*.json
