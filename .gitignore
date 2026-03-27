@@ -78,3 +78,22 @@ client_secret*.json
 nul
 *.csv
 Screenshot_*.jpg
+
+# Docs, prompts, media — not part of PWA source
+*.md
+*.pdf
+*.docx
+*.doc
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+
+# Keep PWA icons
+!public/icons/*.png

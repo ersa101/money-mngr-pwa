@@ -1,16 +1,68 @@
 import { google } from 'googleapis';
 
-const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID!;
+// Resolved at request time (inside getSheetsClient) — not at module load
+function getSpreadsheetId(): string {
+  const id = process.env.GOOGLE_SPREADSHEET_ID;
+  if (!id) throw new Error('GOOGLE_SPREADSHEET_ID is not set');
+  return id;
+}
 
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-  },
-  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-});
+function resolvePrivateKey(): { key: string; format: string } {
+  const raw = process.env.GOOGLE_PRIVATE_KEY ?? '';
+  if (!raw) return { key: '', format: 'missing' };
 
-const sheets = google.sheets({ version: 'v4', auth });
+  // Case 1: escaped \n sequences (most env dashboards: Vercel, Railway, etc.)
+  if (raw.includes('\\n')) {
+    const key = raw.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim();
+    return { key, format: 'escaped-newlines' };
+  }
+  // Case 2: real newlines already present (some platforms inject them directly)
+  if (raw.includes('\n')) {
+    const key = raw.replace(/\r\n/g, '\n').trim();
+    return { key, format: 'real-newlines' };
+  }
+  // Case 3: base64-encoded key (some hosting providers base64-encode secrets)
+  try {
+    const decoded = Buffer.from(raw, 'base64').toString('utf-8');
+    if (decoded.includes('PRIVATE KEY')) {
+      return { key: decoded.replace(/\r\n/g, '\n').trim(), format: 'base64' };
+    }
+  } catch {}
+
+  // Case 4: single-line with no separators — may still work or surface a better error
+  return { key: raw.trim(), format: 'single-line' };
+}
+
+// Lazy-init so credentials are resolved at request time, not at module-load time.
+// This avoids issues on platforms where env vars aren't available during cold-start.
+let _sheets: ReturnType<typeof google.sheets> | null = null;
+export let _keyDiag: { format: string; hasEmail: boolean; hasSpreadsheetId: boolean } | null = null;
+
+function getSheetsClient() {
+  if (_sheets) return _sheets;
+
+  const { key, format } = resolvePrivateKey();
+  _keyDiag = {
+    format,
+    hasEmail: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    hasSpreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID,
+  };
+
+  if (!key) throw new Error(`GOOGLE_PRIVATE_KEY is not set (format: ${format})`);
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is not set');
+  if (!process.env.GOOGLE_SPREADSHEET_ID) throw new Error('GOOGLE_SPREADSHEET_ID is not set');
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: key,
+    },
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  _sheets = google.sheets({ version: 'v4', auth });
+  return _sheets;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // SCHEMA
@@ -93,8 +145,8 @@ const DISPLAY_HEADERS: Record<string, string> = {
 async function writeHeaderRow(sheetName: string, headers: readonly string[]): Promise<void> {
   const labels = headers.map((h) => DISPLAY_HEADERS[h] ?? h);
   try {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
+    await getSheetsClient().spreadsheets.values.update({
+      spreadsheetId: getSpreadsheetId(),
       range: `${sheetName}!A1`,
       valueInputOption: 'RAW',
       requestBody: { values: [labels] },
@@ -111,8 +163,8 @@ async function writeHeaderRow(sheetName: string, headers: readonly string[]): Pr
 /** Read every data row from a sheet (skips the header row A1). */
 async function readAllRows(sheetName: string): Promise<string[][]> {
   try {
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
+    const response = await getSheetsClient().spreadsheets.values.get({
+      spreadsheetId: getSpreadsheetId(),
       range: `${sheetName}!A2:Z`,
     });
     return (response.data.values || []) as string[][];
@@ -126,8 +178,8 @@ async function readAllRows(sheetName: string): Promise<string[][]> {
 async function writeAllRows(sheetName: string, rows: string[][]): Promise<void> {
   // Clear existing data rows first
   try {
-    await sheets.spreadsheets.values.clear({
-      spreadsheetId: SPREADSHEET_ID,
+    await getSheetsClient().spreadsheets.values.clear({
+      spreadsheetId: getSpreadsheetId(),
       range: `${sheetName}!A2:Z`,
     });
   } catch (error: any) {
@@ -137,8 +189,8 @@ async function writeAllRows(sheetName: string, rows: string[][]): Promise<void> 
   if (rows.length === 0) return;
 
   try {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
+    await getSheetsClient().spreadsheets.values.append({
+      spreadsheetId: getSpreadsheetId(),
       range: `${sheetName}!A2`,
       valueInputOption: 'RAW',
       requestBody: { values: rows },
@@ -238,37 +290,56 @@ export async function backupToSheets(data: BackupData, userId: string): Promise<
 // RESTORE — reads ONLY the calling user's rows.
 // ═══════════════════════════════════════════════════════════════
 
-export async function restoreFromSheets(userIdCandidates: string[]): Promise<BackupData> {
+export async function restoreFromSheets(
+  userIdCandidates: string[]
+): Promise<BackupData & { _diag: Record<string, any> }> {
   const result: BackupData = { accounts: [], categories: [], transactions: [], filterPresets: [] };
+  const diag: Record<string, any> = { userIdCandidates, sheets: {} };
+
+  // Validate client init (surfaces key/env errors early with a clear message)
+  let stage = 'init';
+  try {
+    getSheetsClient();
+    getSpreadsheetId();
+  } catch (err: any) {
+    throw new Error(`[stage:${stage}] ${err.message}`);
+  }
 
   for (const config of SHEETS_CONFIG) {
+    stage = `read:${config.name}`;
     const allRows = await readAllRows(config.name);
+    const uniqueUsersInSheet = [...new Set(allRows.map((row) => row[0]).filter(Boolean))];
 
-    // Try each candidate userId in order until we find matching rows.
-    // This handles cases where backups were created under a different userId
-    // format (e.g. Google sub vs email vs legacy value).
+    let matchedBy: string | null = null;
     let userRows: Record<string, any>[] = [];
     for (const candidate of userIdCandidates) {
       const matched = allRows.filter((row) => row[0] === candidate);
       if (matched.length > 0) {
         userRows = matched.map((row) => deserializeRow(row, config.headers));
+        matchedBy = candidate;
         break;
       }
     }
 
-    // Last-resort: if still no match and only one unique user exists in the
-    // sheet (personal spreadsheet), use all rows — it must be this user.
+    // Last-resort: single user in sheet — must be this user
     if (userRows.length === 0 && allRows.length > 0) {
-      const uniqueUsers = new Set(allRows.map((row) => row[0]).filter(Boolean));
-      if (uniqueUsers.size === 1) {
+      if (uniqueUsersInSheet.length === 1) {
         userRows = allRows.map((row) => deserializeRow(row, config.headers));
+        matchedBy = `fallback:${uniqueUsersInSheet[0]}`;
       }
     }
+
+    diag.sheets[config.name] = {
+      totalRows: allRows.length,
+      uniqueUsers: uniqueUsersInSheet,
+      matchedBy,
+      matchedRows: userRows.length,
+    };
 
     (result as any)[config.name] = userRows;
   }
 
-  return result;
+  return { ...result, _diag: diag };
 }
 
 export const sheetsClient = {
