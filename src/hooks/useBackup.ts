@@ -22,10 +22,25 @@ export function useBackup() {
       const transactions = await db.transactions.toArray();
       const filterPresets = await db.filterPresets.toArray();
 
+      const payload = JSON.stringify({ accounts, categories, transactions, filterPresets });
+
+      // Gzip-compress to stay under Vercel's 4.5 MB serverless payload limit.
+      // JSON with repetitive keys (transactions) typically shrinks ~90%.
+      let body: BodyInit = payload;
+      let extraHeaders: Record<string, string> = {};
+      if (typeof CompressionStream !== 'undefined') {
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        writer.write(new TextEncoder().encode(payload));
+        writer.close();
+        body = await new Response(cs.readable).arrayBuffer();
+        extraHeaders = { 'Content-Encoding': 'gzip' };
+      }
+
       const response = await fetch('/api/backup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts, categories, transactions, filterPresets }),
+        headers: { 'Content-Type': 'application/json', ...extraHeaders },
+        body,
       });
 
       const result = await response.json();

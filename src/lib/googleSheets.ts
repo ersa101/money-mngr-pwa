@@ -34,29 +34,53 @@ function resolvePrivateKey(): { key: string; format: string } {
 }
 
 // Lazy-init so credentials are resolved at request time, not at module-load time.
-// This avoids issues on platforms where env vars aren't available during cold-start.
 let _sheets: ReturnType<typeof google.sheets> | null = null;
-export let _keyDiag: { format: string; hasEmail: boolean; hasSpreadsheetId: boolean } | null = null;
+export let _keyDiag: { credSource: string; format?: string; hasEmail: boolean; hasSpreadsheetId: boolean } | null = null;
 
-function getSheetsClient() {
-  if (_sheets) return _sheets;
+function getCredentials(): { credentials: any; credSource: string; keyFormat?: string } {
+  // Option A: Full service account JSON as base64 (preferred — no OpenSSL key parsing at all)
+  // Set GOOGLE_SERVICE_ACCOUNT_JSON in Vercel = base64 of your service account .json file
+  const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (b64) {
+    try {
+      const json = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+      if (json.client_email && json.private_key) {
+        return { credentials: json, credSource: 'json-base64' };
+      }
+    } catch {
+      throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is set but could not be decoded — ensure it is valid base64 JSON');
+    }
+  }
 
+  // Option B: Individual env vars (fallback — subject to OpenSSL 3 key parsing)
   const { key, format } = resolvePrivateKey();
-  _keyDiag = {
-    format,
-    hasEmail: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    hasSpreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID,
-  };
-
-  if (!key) throw new Error(`GOOGLE_PRIVATE_KEY is not set (format: ${format})`);
+  if (!key) throw new Error(`GOOGLE_PRIVATE_KEY is not set (detected format: ${format})`);
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is not set');
-  if (!process.env.GOOGLE_SPREADSHEET_ID) throw new Error('GOOGLE_SPREADSHEET_ID is not set');
-
-  const auth = new google.auth.GoogleAuth({
+  return {
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: key,
     },
+    credSource: 'individual-env-vars',
+    keyFormat: format,
+  };
+}
+
+function getSheetsClient() {
+  if (_sheets) return _sheets;
+
+  if (!process.env.GOOGLE_SPREADSHEET_ID) throw new Error('GOOGLE_SPREADSHEET_ID is not set');
+
+  const { credentials, credSource, keyFormat } = getCredentials();
+  _keyDiag = {
+    credSource,
+    format: keyFormat,
+    hasEmail: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    hasSpreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID,
+  };
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 
