@@ -49,9 +49,14 @@ export function TransactionCard({
     [accounts, transaction.toAccountId]
   );
 
-  const category = useMemo(() => 
+  const category = useMemo(() =>
     categories.find(c => c.id === transaction.categoryId),
     [categories, transaction.categoryId]
+  );
+
+  const subCategory = useMemo(() =>
+    transaction.subCategoryId ? categories.find(c => c.id === transaction.subCategoryId) : undefined,
+    [categories, transaction.subCategoryId]
   );
 
   // ═══════════════════════════════════════════════════════════════
@@ -159,7 +164,7 @@ export function TransactionCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-medium text-white truncate">
-                {category?.icon} {category?.name || 'Uncategorized'}
+                {category?.icon} {category?.name || 'Uncategorized'}{subCategory ? ` > ${subCategory.name}` : ''}
               </span>
             </div>
             

@@ -143,6 +143,7 @@ export function SnapshotSection() {
 
   // ── Main UI ────────────────────────────────────────────────────────────────
   return (
+    <div className="rounded-lg border border-slate-700 bg-slate-900 p-6">
     <div className="space-y-4">
 
       {/* Header row */}
@@ -194,8 +195,8 @@ export function SnapshotSection() {
       {statusMsg && (
         <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${
           statusMsg.type === 'success'
-            ? 'bg-green-900/40 text-green-300 border border-green-700'
-            : 'bg-red-900/40 text-red-300 border border-red-700'
+            ? 'bg-green-900/50 text-green-400 border border-green-700'
+            : 'bg-red-900/50 text-red-400 border border-red-700'
         }`}>
           {statusMsg.type === 'success'
             ? <CheckCircle className="w-4 h-4" />
@@ -293,6 +294,7 @@ export function SnapshotSection() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

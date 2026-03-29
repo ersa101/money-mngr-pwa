@@ -43,6 +43,7 @@ interface SnapshotData {
   accounts: any[];
   categories: any[];
   transactions: any[];
+  filterPresets?: any[];
 }
 
 export async function createSnapshot(
@@ -63,6 +64,7 @@ export async function createSnapshot(
       totalAccounts: data.accounts.length,
       totalCategories: data.categories.length,
       totalTransactions: data.transactions.length,
+      totalFilterPresets: (data.filterPresets ?? []).length,
     },
   };
 

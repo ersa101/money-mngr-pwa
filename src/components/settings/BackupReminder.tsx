@@ -1,14 +1,20 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { CloudOff, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const REMINDER_DAYS = 7;
 
 export function useBackupReminder() {
+  const { data: session } = useSession();
+
   useEffect(() => {
-    const lastBackup = localStorage.getItem('lastBackupAt');
+    // Must match the key written by useBackup.ts
+    const userId = session?.user?.id || 'anonymous';
+    const key = `lastBackupAt_${userId}`;
+    const lastBackup = localStorage.getItem(key);
 
     if (!lastBackup) {
       // Never backed up - subtle reminder with close button
@@ -55,5 +61,5 @@ export function useBackupReminder() {
         </div>
       ), { duration: 8000, position: 'top-center' });
     }
-  }, []);
+  }, [session?.user?.id]);
 }

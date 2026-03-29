@@ -1,0 +1,5 @@
+Date,Account,Category,Subcategory,Note,Type,Description,Amount,Currency
+24/02/2026 14:30,HDFC Bank,Food,Restaurant,Lunch with team,Expense,Swiggy order,250.00,INR
+24/02/2026 10:00,SBI Savings,Salary,,February salary,Income,Monthly salary,50000.00,INR
+23/02/2026 18:00,HDFC Bank,,,Transfer to savings,Transfer-Out,Monthly savings,10000.00,INR
+23/02/2026 18:00,SBI Savings,,,Transfer from HDFC,Transfer-In,,10000.00,INR

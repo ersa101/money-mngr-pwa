@@ -3,10 +3,11 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useDb } from '@/contexts/DbContext'
-import type { Account, Category, Transaction } from '@/types/database'
+import type { Account, Category, Transaction, FilterPreset } from '@/types/database'
 import { AddTransactionModal, CSVUploadModal } from '@/components'
 import { TransactionList } from '@/components/transactions/TransactionList'
-import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { SaveFilterModal, computeBillingDates } from '@/components/transactions/SaveFilterModal'
+import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import toast from 'react-hot-toast'
 
@@ -115,18 +116,54 @@ function TransactionsPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
 
   // Advanced filter state
+  const [showPresetsPanel, setShowPresetsPanel] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [searchText, setSearchText] = useState('')
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([])
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false)
   const [filterAccount, setFilterAccount] = useState<string>('')
   const [filterCategory, setFilterCategory] = useState<string>('')
   const [filterDateFrom, setFilterDateFrom] = useState<string>('')
   const [filterDateTo, setFilterDateTo] = useState<string>('')
   const [filterAmountMin, setFilterAmountMin] = useState<string>('')
   const [filterAmountMax, setFilterAmountMax] = useState<string>('')
+  const [filterSubCategory, setFilterSubCategory] = useState<string>('')
+
+  // Preset state
+  const [activePresetId, setActivePresetId] = useState<number | null>(null)
+  const [editingPreset, setEditingPreset] = useState<FilterPreset | null>(null)
+  const [showSaveModal, setShowSaveModal] = useState(false)
 
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
   const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
   const transactions = useLiveQuery(() => db?.transactions.orderBy('date').reverse().toArray() ?? [], [db])
+  const filterPresets = useLiveQuery(() => db?.filterPresets.toArray() ?? [], [db]) || []
+
+  // Unique note/description pool for search autocomplete
+  const allNoteValues = useMemo(() => {
+    if (!transactions) return []
+    const seen = new Set<string>()
+    transactions.forEach(t => {
+      if (t.description?.trim()) seen.add(t.description.trim())
+      if (t.notes?.trim()) seen.add(t.notes.trim())
+    })
+    return Array.from(seen).sort()
+  }, [transactions])
+
+  const handleSearchChange = (value: string) => {
+    setSearchText(value)
+    setActivePresetId(null)
+    if (value.trim().length > 0) {
+      const filtered = allNoteValues.filter(n =>
+        n.toLowerCase().includes(value.toLowerCase())
+      ).slice(0, 8)
+      setSearchSuggestions(filtered)
+      setShowSearchSuggestions(filtered.length > 0)
+    } else {
+      setShowSearchSuggestions(false)
+    }
+  }
+
 
   // Get unique categories from transactions for filter dropdown.
   // Scoped to the currently selected typeFilter so that when the user picks
@@ -148,27 +185,116 @@ function TransactionsPage() {
     return Array.from(cats).sort()
   }, [transactions, categories, typeFilter])
 
-  // Clear the category filter whenever the type changes to avoid stale selections
-  // (e.g. "Salary" from Income still showing when switching to Expense)
+  // Subcategories for the currently selected filterCategory
+  const availableSubCategories = useMemo(() => {
+    if (!categories || !filterCategory) return []
+    const parentCat = categories.find(c => c.name === filterCategory && !c.parentId)
+    if (!parentCat) return []
+    return categories.filter(c => c.parentId === parentCat.id)
+  }, [categories, filterCategory])
+
+  // Clear category + subcategory when type changes
   useEffect(() => {
     setFilterCategory('')
+    setFilterSubCategory('')
   }, [typeFilter])
+
+  // Clear subcategory when category changes
+  useEffect(() => {
+    setFilterSubCategory('')
+  }, [filterCategory])
 
   useEffect(() => {
     ActionLogger.pageView('/transactions')
   }, [])
 
-  const hasActiveFilters = searchText || filterAccount || filterCategory || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax || typeFilter !== 'all'
+  const hasActiveFilters = !!(searchText || filterAccount || filterCategory || filterSubCategory || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax || typeFilter !== 'all')
 
   const clearFilters = () => {
     setSearchText('')
     setFilterAccount('')
     setFilterCategory('')
+    setFilterSubCategory('')
     setFilterDateFrom('')
     setFilterDateTo('')
     setFilterAmountMin('')
     setFilterAmountMax('')
     setTypeFilter('all')
+    setActivePresetId(null)
+  }
+
+  const applyPreset = (preset: FilterPreset) => {
+    let dateFrom = ''
+    let dateTo = ''
+
+    if (preset.dateOffsetType?.startsWith('billing-')) {
+      const match = preset.dateOffsetType.match(/^billing-(\d+)-(\d+)(?:-(\d+))?$/)
+      if (match) {
+        const offset = match[3] ? parseInt(match[3]) : 0
+        const range = computeBillingDates(parseInt(match[1]), parseInt(match[2]), offset)
+        dateFrom = range.from
+        dateTo = range.to
+      }
+    } else if (preset.dateOffsetType === 'custom') {
+      dateFrom = preset.dateOffsetStart || ''
+      dateTo = preset.dateOffsetEnd || ''
+    }
+
+    const categoryName = categories?.find(c => c.id === preset.categoryId)?.name || ''
+    const subCategoryName = categories?.find(c => c.id === preset.subCategoryId)?.name || ''
+
+    setSearchText(preset.searchText || '')
+    setFilterAccount(preset.accountId?.toString() || '')
+    setTypeFilter((preset.transactionType as TypeFilter) || 'all')
+    setFilterCategory(categoryName)
+    setFilterSubCategory(subCategoryName)
+    setFilterDateFrom(dateFrom)
+    setFilterDateTo(dateTo)
+    setFilterAmountMin(preset.amountMin?.toString() || '')
+    setFilterAmountMax(preset.amountMax?.toString() || '')
+    setActivePresetId(preset.id!)
+  }
+
+  const deletePreset = async (preset: FilterPreset) => {
+    if (!confirm(`Delete filter preset "${preset.name}"?`)) return
+    await db.filterPresets.delete(preset.id!)
+    if (activePresetId === preset.id) setActivePresetId(null)
+    toast.success('Filter preset deleted')
+  }
+
+  const getPresetSummary = (preset: FilterPreset): string => {
+    const parts: string[] = []
+    if (preset.searchText) parts.push(`"${preset.searchText}"`)
+    if (preset.transactionType && preset.transactionType !== 'all') {
+      parts.push(preset.transactionType.charAt(0) + preset.transactionType.slice(1).toLowerCase())
+    }
+    if (preset.accountId) {
+      const acc = accounts?.find(a => a.id === preset.accountId)
+      if (acc) parts.push(acc.name)
+    }
+    if (preset.categoryId) {
+      const cat = categories?.find(c => c.id === preset.categoryId)
+      if (cat) parts.push(cat.name)
+    }
+    if (preset.subCategoryId) {
+      const sc = categories?.find(c => c.id === preset.subCategoryId)
+      if (sc) parts.push(`> ${sc.name}`)
+    }
+    if (preset.dateOffsetType?.startsWith('billing-')) {
+      const match = preset.dateOffsetType.match(/^billing-(\d+)-(\d+)(?:-(\d+))?$/)
+      if (match) {
+        const offset = match[3] ? parseInt(match[3]) : 0
+        parts.push(`Billing ${match[1]}th–${match[2]}th${offset > 0 ? ' (Prev)' : ''}`)
+      }
+    } else if (preset.dateOffsetType === 'custom') {
+      if (preset.dateOffsetStart || preset.dateOffsetEnd) {
+        parts.push(`${preset.dateOffsetStart || '?'} → ${preset.dateOffsetEnd || '?'}`)
+      }
+    }
+    if (preset.amountMin != null || preset.amountMax != null) {
+      parts.push(`₹${preset.amountMin ?? 0}–${preset.amountMax ?? '∞'}`)
+    }
+    return parts.join(' · ') || 'No filters set'
   }
 
   const filteredTransactions = useMemo(() => {
@@ -198,6 +324,11 @@ function TransactionsPage() {
       const category = categories?.find(c => c.id === tx.categoryId)
       if (filterCategory && category?.name !== filterCategory) return false
 
+      if (filterSubCategory) {
+        const subCat = categories?.find(c => c.id === tx.subCategoryId)
+        if (!subCat || subCat.name !== filterSubCategory) return false
+      }
+
       if (filterDateFrom) {
         const fromDate = new Date(filterDateFrom)
         fromDate.setHours(0, 0, 0, 0)
@@ -214,7 +345,22 @@ function TransactionsPage() {
 
       return true
     })
-  }, [transactions, typeFilter, searchText, filterAccount, filterCategory, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax, categories])
+  }, [transactions, typeFilter, searchText, filterAccount, filterCategory, filterSubCategory, filterDateFrom, filterDateTo, filterAmountMin, filterAmountMax, categories])
+
+  // Totals across all currently filtered transactions — must be after filteredTransactions
+  const filterTotals = useMemo(() => {
+    if (!filteredTransactions || filteredTransactions.length === 0) return null
+    const income = filteredTransactions
+      .filter(t => t.transactionType === 'INCOME')
+      .reduce((s, t) => s + t.amount, 0)
+    const expense = filteredTransactions
+      .filter(t => t.transactionType === 'EXPENSE')
+      .reduce((s, t) => s + t.amount, 0)
+    const transfer = filteredTransactions
+      .filter(t => t.transactionType === 'TRANSFER')
+      .reduce((s, t) => s + t.amount, 0)
+    return { income, expense, transfer, count: filteredTransactions.length }
+  }, [filteredTransactions])
 
   // Group transactions by selected period
   const groupedTransactions = useMemo(() => {
@@ -334,37 +480,120 @@ function TransactionsPage() {
           <p className="mt-1 text-sm text-slate-400">Track and manage all your financial activities</p>
         </div>
 
-        <div className="rounded-lg bg-slate-800 p-4 space-y-4">
+        <div className="rounded-lg bg-slate-800 p-4 space-y-3">
+          {/* ── Row 1: Search + Filter button + Add + Upload ── */}
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input
                 type="text"
-                placeholder="Search..."
+                placeholder="Search transactions..."
                 value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onFocus={() => searchText.trim() && searchSuggestions.length > 0 && setShowSearchSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
                 className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                autoComplete="off"
               />
               {searchText && (
                 <button
-                  onClick={() => setSearchText('')}
+                  onClick={() => { setSearchText(''); setShowSearchSuggestions(false) }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                 >
                   <X size={16} />
                 </button>
               )}
+              {showSearchSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {searchSuggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setSearchText(suggestion)
+                        setShowSearchSuggestions(false)
+                      }}
+                      className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
-                showFilters || hasActiveFilters
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
-              }`}
-            >
-              <Filter size={18} />
-              {hasActiveFilters && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-yellow-400" />}
-            </button>
+
+            {/* Filter button — opens saved presets panel only */}
+            <div className="relative">
+              <button
+                onClick={() => setShowPresetsPanel(!showPresetsPanel)}
+                className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
+                  showPresetsPanel
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
+                }`}
+                title="Saved filters"
+              >
+                <Filter size={18} />
+                {filterPresets.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] rounded-full bg-purple-500 text-white text-[10px] flex items-center justify-center font-bold px-0.5">
+                    {filterPresets.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Presets dropdown */}
+              {showPresetsPanel && (
+                <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 sticky top-0 bg-slate-900">
+                    <span className="text-xs text-slate-400 uppercase font-medium tracking-wide">Saved Filters</span>
+                    <button onClick={() => setShowPresetsPanel(false)} className="text-slate-500 hover:text-white p-0.5">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {filterPresets.length === 0 ? (
+                    <div className="px-3 py-5 text-center text-sm text-slate-500">
+                      No saved filters yet.<br />
+                      <span className="text-xs">Fill in filters below and click Save.</span>
+                    </div>
+                  ) : (
+                    <div className="p-2 space-y-1">
+                      {filterPresets.map(preset => (
+                        <div
+                          key={preset.id}
+                          className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                            activePresetId === preset.id
+                              ? 'bg-purple-900/50 border-purple-600'
+                              : 'bg-slate-800/60 border-slate-700 hover:border-slate-500'
+                          }`}
+                          onClick={() => { applyPreset(preset); setShowPresetsPanel(false) }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-white text-sm">{preset.name}</div>
+                            <div className="text-xs text-slate-400 truncate mt-0.5">{getPresetSummary(preset)}</div>
+                          </div>
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditingPreset(preset); setShowSaveModal(true); setShowPresetsPanel(false) }}
+                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+                            title="Edit preset"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); deletePreset(preset) }}
+                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+                            title="Delete preset"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => setIsModalOpen(true)}
               className="flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
@@ -379,118 +608,207 @@ function TransactionsPage() {
                 </button>
               }
             />
+
+            {/* ── Filter expand/collapse toggle ── */}
+            <button
+              onClick={() => setShowFilters(f => !f)}
+              title={showFilters ? 'Collapse filters' : 'Expand filters'}
+              className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
+                showFilters
+                  ? 'bg-slate-600 border-slate-500 text-white'
+                  : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
+              }`}
+            >
+              <ChevronDown
+                size={18}
+                className={`transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`}
+              />
+              {hasActiveFilters && !showFilters && (
+                <span className="absolute -top-1.5 -right-1.5 w-[10px] h-[10px] rounded-full bg-blue-500" />
+              )}
+            </button>
           </div>
 
+          {/* ── Active preset indicator — always visible ── */}
+          {activePresetId && (() => {
+            const active = filterPresets.find(p => p.id === activePresetId)
+            return active ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-900/40 border border-purple-700 rounded-lg text-sm">
+                <Bookmark className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                <span className="text-purple-200 font-medium flex-1 truncate">{active.name}</span>
+                <button onClick={clearFilters} className="text-purple-400 hover:text-white flex-shrink-0" title="Clear filter">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : null
+          })()}
+
+          {/* ── Collapsible filter section ── */}
           {showFilters && (
-            <div className="space-y-4 pt-4 border-t border-slate-700">
-              <div>
-                <p className="text-xs text-slate-400 uppercase mb-2">Type</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(['all', 'expense', 'income', 'transfer'] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setTypeFilter(f)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                        typeFilter === f
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                      }`}
-                    >
-                      {f.charAt(0).toUpperCase() + f.slice(1)}
-                    </button>
-                  ))}
-                </div>
+            <>
+              {/* Type Pills */}
+              <div className="flex gap-2 flex-wrap">
+                {(['all', 'expense', 'income', 'transfer'] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => { setTypeFilter(f); setActivePresetId(null) }}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                      typeFilter === f ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Account | Category */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">Account</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">Account</label>
                   <select
                     value={filterAccount}
-                    onChange={(e) => setFilterAccount(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterAccount(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All Accounts</option>
                     {accounts?.map((acc) => (
-                      <option key={`filter-acc-${acc.id}`} value={acc.id}>
-                        {acc.name}
-                      </option>
+                      <option key={`filter-acc-${acc.id}`} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">Category</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">Category</label>
                   <select
                     value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterCategory(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All Categories</option>
                     {uniqueCategories.map((cat) => (
-                      <option key={`filter-cat-${cat}`} value={cat}>
-                        {cat}
-                      </option>
+                      <option key={`filter-cat-${cat}`} value={cat}>{cat}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* SubCategory — appears when category has children */}
+              {availableSubCategories.length > 0 && (
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">From</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">SubCategory</label>
+                  <select
+                    value={filterSubCategory}
+                    onChange={(e) => { setFilterSubCategory(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                  >
+                    <option value="">All SubCategories</option>
+                    {availableSubCategories.map((sc) => (
+                      <option key={`filter-sc-${sc.id}`} value={sc.name}>{sc.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Date Range */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">From</label>
                   <input
                     type="date"
                     value={filterDateFrom}
-                    onChange={(e) => setFilterDateFrom(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterDateFrom(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">To</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">To</label>
                   <input
                     type="date"
                     value={filterDateTo}
-                    onChange={(e) => setFilterDateTo(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterDateTo(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Amount Range */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">Min Amount</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">Min Amount</label>
                   <input
                     type="number"
                     placeholder="0"
                     value={filterAmountMin}
-                    onChange={(e) => setFilterAmountMin(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterAmountMin(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-2 block">Max Amount</label>
+                  <label className="text-xs text-slate-400 uppercase mb-1 block">Max Amount</label>
                   <input
                     type="number"
                     placeholder="No limit"
                     value={filterAmountMax}
-                    onChange={(e) => setFilterAmountMax(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                    onChange={(e) => { setFilterAmountMax(e.target.value); setActivePresetId(null) }}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
               </div>
 
-              {hasActiveFilters && (
+              {/* Save as Filter + Clear */}
+              <div className="flex gap-2 pt-1 border-t border-slate-700">
                 <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors"
+                  onClick={() => { setEditingPreset(null); setShowSaveModal(true) }}
+                  disabled={!hasActiveFilters}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    hasActiveFilters
+                      ? 'bg-purple-700 text-white hover:bg-purple-600'
+                      : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                  }`}
                 >
-                  <X size={16} />
-                  Clear Filters
+                  <Bookmark size={15} />
+                  Save as Filter
                 </button>
-              )}
-            </div>
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors text-sm"
+                  >
+                    <X size={15} />
+                    Clear
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
+
+        {/* ── Totals pills — outside filter card, always visible when active ── */}
+        {hasActiveFilters && filterTotals && (
+          <div className="flex flex-wrap gap-3">
+            {/* Income */}
+            <div className="flex items-center gap-2 bg-green-900/40 border border-green-800 rounded-xl px-4 py-2.5">
+              <span className="text-green-400 font-bold text-base">▲</span>
+              <span className="text-green-400 font-bold text-base">{formatCurrency(filterTotals.income)}</span>
+            </div>
+            {/* Expense */}
+            <div className="flex items-center gap-2 bg-red-900/40 border border-red-800 rounded-xl px-4 py-2.5">
+              <span className="text-red-400 font-bold text-base">▼</span>
+              <span className="text-red-400 font-bold text-base">{formatCurrency(filterTotals.expense)}</span>
+            </div>
+            {/* Transfer */}
+            <div className="flex items-center gap-2 bg-blue-900/40 border border-blue-800 rounded-xl px-4 py-2.5">
+              <span className="text-blue-400 font-bold text-base">⇄</span>
+              <span className="text-blue-400 font-bold text-base">{formatCurrency(filterTotals.transfer)}</span>
+            </div>
+            {/* Count */}
+            <div className="flex items-center gap-2 bg-slate-700/60 border border-slate-600 rounded-xl px-4 py-2.5">
+              <span className="text-slate-300 font-bold text-base">#</span>
+              <span className="text-slate-300 font-bold text-base">{filterTotals.count}</span>
+              <span className="text-slate-400 text-sm">txns</span>
+            </div>
+          </div>
+        )}
+
 
         {/* Date Grouping Pills */}
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
@@ -594,6 +912,27 @@ function TransactionsPage() {
         editTransaction={editingTransaction}
         onCopy={editingTransaction ? handleCopy : undefined}
         onDelete={editingTransaction ? handleDelete : undefined}
+
+      />
+
+      <SaveFilterModal
+        isOpen={showSaveModal}
+        onClose={() => { setShowSaveModal(false); setEditingPreset(null) }}
+        initialValues={{
+          searchText,
+          accountId: filterAccount,
+          transactionType: typeFilter === 'all' ? 'all' : typeFilter.toUpperCase(),
+          categoryId: categories?.find(c => c.name === filterCategory)?.id?.toString() || '',
+          subCategoryId: categories?.find(c => c.name === filterSubCategory)?.id?.toString() || '',
+          dateFrom: filterDateFrom,
+          dateTo: filterDateTo,
+          amountMin: filterAmountMin,
+          amountMax: filterAmountMax,
+        }}
+        editingPreset={editingPreset}
+        onSaved={(preset) => {
+          applyPreset(preset)
+        }}
       />
     </div>
   )

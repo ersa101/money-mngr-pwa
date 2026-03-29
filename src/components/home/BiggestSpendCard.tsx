@@ -52,7 +52,7 @@ export function BiggestSpendCard() {
   return (
     <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-5">
       <div className="flex items-center gap-2 mb-3">
-        <Flame className="w-5 h-5 text-orange-400" title="Biggest Spend This Week" />
+        <span title="Biggest Spend This Week"><Flame className="w-5 h-5 text-orange-400" /></span>
         <span className="text-sm font-medium text-slate-400">Biggest Spend This Week</span>
       </div>
       <div className="text-2xl font-bold text-orange-400">{formatCurrency(biggest.amount)}</div>

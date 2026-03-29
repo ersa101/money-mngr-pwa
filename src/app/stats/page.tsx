@@ -2,6 +2,7 @@
 
 import { useDateFilter } from '@/hooks/useDateFilter'
 import { CategoryComposition } from '@/components/stats/CategoryComposition'
+import { CategoryTrend } from '@/components/stats/CategoryTrend'
 import { SubCategoryTrend } from '@/components/stats/SubCategoryTrend'
 import { IncomeVsExpense } from '@/components/stats/IncomeVsExpense'
 import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
@@ -20,11 +21,12 @@ export default function StatsPage() {
   } = useDateFilter()
 
   const [showCustomRange, setShowCustomRange] = useState(false)
+  const [categoryClick, setCategoryClick] = useState<{ name: string; type: 'EXPENSE' | 'INCOME'; _t: number } | null>(null)
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
-      <div className="border-b border-border bg-card/50">
+      {/* Header — sticky so period selector stays visible while scrolling */}
+      <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
@@ -169,11 +171,25 @@ export default function StatsPage() {
         {/* Income vs Expense - Full Width */}
         <IncomeVsExpense dateRange={dateRange} />
 
-        {/* Category Composition & Sub-Category Trend - Side by Side */}
+        {/* Category Composition - Expense & Income Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <CategoryComposition dateRange={dateRange} />
-          <SubCategoryTrend dateRange={dateRange} />
+          <CategoryComposition
+            dateRange={dateRange}
+            type="EXPENSE"
+            onCategoryClick={(name) => setCategoryClick({ name, type: 'EXPENSE', _t: Date.now() })}
+          />
+          <CategoryComposition
+            dateRange={dateRange}
+            type="INCOME"
+            onCategoryClick={(name) => setCategoryClick({ name, type: 'INCOME', _t: Date.now() })}
+          />
         </div>
+
+        {/* Category Trend - Full Width */}
+        <CategoryTrend dateRange={dateRange} categoryClick={categoryClick} />
+
+        {/* Sub-Category Trend - Full Width */}
+        <SubCategoryTrend dateRange={dateRange} />
 
         {/* Account Balance History - Full Width */}
         <AccountBalanceHistory dateRange={dateRange} />

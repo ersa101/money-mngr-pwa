@@ -9,7 +9,6 @@ export function useBackup() {
   const [isRestoring, setIsRestoring] = useState(false);
   const db = useDb();
   const { data: session } = useSession();
-  // Use a per-user localStorage key so the timestamp is scoped to the Google account
   const backupTimestampKey = `lastBackupAt_${session?.user?.id || 'anonymous'}`;
 
   const backupNow = async () => {
@@ -20,11 +19,26 @@ export function useBackup() {
       const accounts = await db.accounts.toArray();
       const categories = await db.categories.toArray();
       const transactions = await db.transactions.toArray();
+      const filterPresets = await db.filterPresets.toArray();
+
+      const payload = JSON.stringify({ accounts, categories, transactions, filterPresets });
+
+      // Gzip-compress to stay under Vercel's 4.5 MB serverless payload limit.
+      let body: BodyInit = payload;
+      let extraHeaders: Record<string, string> = {};
+      if (typeof CompressionStream !== 'undefined') {
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        writer.write(new TextEncoder().encode(payload));
+        writer.close();
+        body = await new Response(cs.readable).arrayBuffer();
+        extraHeaders = { 'Content-Encoding': 'gzip' };
+      }
 
       const response = await fetch('/api/backup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts, categories, transactions }),
+        headers: { 'Content-Type': 'application/json', ...extraHeaders },
+        body,
       });
 
       const result = await response.json();
@@ -62,16 +76,18 @@ export function useBackup() {
       const totalRecords =
         (result.data?.accounts?.length || 0) +
         (result.data?.categories?.length || 0) +
-        (result.data?.transactions?.length || 0);
+        (result.data?.transactions?.length || 0) +
+        (result.data?.filterPresets?.length || 0);
 
       if (totalRecords === 0) {
         throw new Error('No backup data found for your account in Google Sheets. Backup first or check your account.');
       }
 
-      await db.transaction('rw', db.accounts, db.categories, db.transactions, async () => {
+      await db.transaction('rw', db.accounts, db.categories, db.transactions, db.filterPresets, async () => {
         await db.accounts.clear();
         await db.categories.clear();
         await db.transactions.clear();
+        await db.filterPresets.clear();
 
         if (result.data?.accounts?.length) {
           await db.accounts.bulkAdd(result.data.accounts);
@@ -81,6 +97,9 @@ export function useBackup() {
         }
         if (result.data?.transactions?.length) {
           await db.transactions.bulkAdd(result.data.transactions);
+        }
+        if (result.data?.filterPresets?.length) {
+          await db.filterPresets.bulkAdd(result.data.filterPresets);
         }
       });
 

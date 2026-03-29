@@ -69,6 +69,8 @@ client_secret*.json
 *googleproject*.json
 *MASTERapi.json
 *.credentials.json
+*.xlsx
+*.docx
 
 # Claude Code internal
 .claude/
@@ -77,3 +79,27 @@ client_secret*.json
 nul
 *.csv
 Screenshot_*.jpg
+
+# Docs, prompts, media — not part of PWA source
+*.md
+*.pdf
+*.docx
+*.doc
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+
+# Keep PWA icons
+!public/icons/*.png
+
+# Keep public static assets needed by the app
+!public/*.csv
+!public/*.html
+!public/*.json

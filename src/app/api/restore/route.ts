@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { sheetsClient } from '@/lib/googleSheets';
+import { sheetsClient, _keyDiag } from '@/lib/googleSheets';
 
 export async function GET(request: NextRequest) {
-  // Identify the caller — only return this user's rows from the shared sheet
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const userId = session.user.id;
+
+  const userIdCandidates = [
+    session.user.email,
+    session.user.id,
+  ].filter((v): v is string => !!v);
 
   try {
-    const data = await sheetsClient.restoreFromSheets(userId);
+    const result = await sheetsClient.restoreFromSheets(userIdCandidates);
+    const { _diag, ...data } = result;
 
     return NextResponse.json({
       success: true,
@@ -20,12 +24,18 @@ export async function GET(request: NextRequest) {
         accounts: data.accounts?.length || 0,
         categories: data.categories?.length || 0,
         transactions: data.transactions?.length || 0,
+        filterPresets: data.filterPresets?.length || 0,
       },
+      _diag,
     });
   } catch (error: any) {
     console.error('Restore failed:', error);
     return NextResponse.json(
-      { error: error.message || 'Restore failed' },
+      {
+        error: error.message || 'Restore failed',
+        stage: error.message?.match(/\[stage:([^\]]+)\]/)?.[1] ?? 'unknown',
+        keyDiag: _keyDiag,
+      },
       { status: 500 }
     );
   }

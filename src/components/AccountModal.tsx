@@ -321,6 +321,7 @@ export function AccountModal({
               variant="outline"
               onClick={onClose}
               disabled={loading}
+              className="bg-muted text-foreground hover:bg-muted/80"
             >
               Cancel
             </Button>

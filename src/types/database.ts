@@ -26,9 +26,9 @@ export interface Account {
   thresholdValue: number;
   color?: string;
   icon?: string;
-  group?: string; // Custom grouping name for display
-  includeInNetWorth?: boolean; // Whether to include in net worth calculation (default: true)
-  isLiability?: boolean; // Whether this account is a liability (e.g., credit card debt)
+  group?: string;
+  includeInNetWorth?: boolean;
+  isLiability?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -48,6 +48,22 @@ export interface Category {
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
 export type TransactionSource = 'MANUAL' | 'CSV_IMPORT' | 'MAGIC_BOX';
 
+export interface FilterPreset {
+  id?: number;
+  name: string;
+  searchText?: string;
+  accountId?: number;
+  transactionType?: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'all';
+  categoryId?: number;
+  subCategoryId?: number;
+  dateOffsetType?: string;
+  dateOffsetStart?: string;
+  dateOffsetEnd?: string;
+  amountMin?: number;
+  amountMax?: number;
+  createdAt?: string;
+}
+
 export interface Transaction {
   id?: number;
   date: string;
@@ -63,7 +79,6 @@ export interface Transaction {
   source: TransactionSource;
   currency: string;
   linkedTransactionId?: number;
-  // CSV fallback fields for category resolution
   csvCategory?: string;
   csvSubcategory?: string;
   createdAt?: string;

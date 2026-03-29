@@ -8,7 +8,7 @@ export function BackupSection() {
   const { isBackingUp, isRestoring, backupNow, restoreNow } = useBackup();
 
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-6">
+    <div className="rounded-lg border border-slate-700 bg-slate-800 p-6">
       <h3 className="text-xl font-semibold text-white">Google Sheets Backup</h3>
       <p className="mt-2 text-slate-400">
         Sync your data to a Google Sheet for easy access and as a live backup.
@@ -26,7 +26,7 @@ export function BackupSection() {
           onClick={restoreNow}
           disabled={isBackingUp || isRestoring}
           variant="outline"
-          className="flex-1"
+          className="flex-1 bg-slate-700 text-white border-slate-500 hover:bg-slate-600"
         >
           {isRestoring && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Restore from Sheets
