@@ -103,6 +103,7 @@ export function useBackup() {
         }
       });
 
+      localStorage.setItem(backupTimestampKey, new Date().toISOString());
       toast.dismiss();
       toast.success('Data restored successfully!');
     } catch (error: any) {

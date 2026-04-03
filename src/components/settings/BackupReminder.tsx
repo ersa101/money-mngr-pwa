@@ -8,10 +8,12 @@ import toast from 'react-hot-toast';
 const REMINDER_DAYS = 7;
 
 export function useBackupReminder() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
 
   useEffect(() => {
-    // Must match the key written by useBackup.ts
+    // Wait until session is fully loaded to avoid double-firing with 'anonymous' key
+    if (status !== 'authenticated') return;
+
     const userId = session?.user?.id || 'anonymous';
     const key = `lastBackupAt_${userId}`;
     const lastBackup = localStorage.getItem(key);
@@ -61,5 +63,5 @@ export function useBackupReminder() {
         </div>
       ), { duration: 8000, position: 'top-center' });
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, status]);
 }

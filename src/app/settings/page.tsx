@@ -333,7 +333,7 @@ export default function SettingsPage() {
                 <h2 className="text-lg font-semibold">AI API Keys</h2>
               </div>
               <p className="text-sm text-muted-foreground">
-                Keys are stored locally in your browser (IndexedDB). They are never sent to our servers — only forwarded directly to the AI provider when you use FAIN features.
+                Optional. If you add your own keys, they take priority over the shared keys. Keys are stored locally in your browser (IndexedDB) and sent only to the AI provider when you use FAIN or SMS parsing features.
               </p>
 
               {/* Gemini Key */}

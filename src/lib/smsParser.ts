@@ -204,6 +204,18 @@ export function parseSMS(smsText: string): ParsedSMS {
   for (const pattern of DATE_PATTERNS) {
     const match = text.match(pattern)
     if (match) {
+      // First pattern: numeric DD/MM/YY or DD/MM/YYYY (Indian bank SMS format)
+      const numericParts = match[1].split(/[-\/]/)
+      if (numericParts.length === 3) {
+        const [dd, mm, yy] = numericParts.map(Number)
+        const yyyy = yy < 100 ? 2000 + yy : yy
+        const parsed = new Date(yyyy, mm - 1, dd)
+        if (!isNaN(parsed.getTime()) && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+          date = parsed
+          break
+        }
+      }
+      // Second pattern: "03 Apr 2026" style — safe to use Date constructor
       const parsed = new Date(match[1])
       if (!isNaN(parsed.getTime())) {
         date = parsed

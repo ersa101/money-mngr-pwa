@@ -60,6 +60,8 @@ export function AddTransactionModal({
   // Data from IndexedDB
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
   const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const geminiKeySetting = useLiveQuery(() => db?.appSettings.get('gemini_api_key'), [db]);
+  const claudeKeySetting = useLiveQuery(() => db?.appSettings.get('claude_api_key'), [db]);
 
   // SMS Parsing State
   const [smsText, setSmsText] = useState('');
@@ -205,18 +207,6 @@ export function AddTransactionModal({
       return;
     }
 
-    // Check if any API key is configured
-    const apiKeys = {
-      gemini: localStorage.getItem('gemini_api_key'),
-      claude: localStorage.getItem('claude_api_key'),
-      openai: localStorage.getItem('openai_api_key'),
-    };
-
-    if (!apiKeys.gemini && !apiKeys.claude && !apiKeys.openai) {
-      toast.error('No API keys configured. Go to Settings → API Keys');
-      return;
-    }
-
     if (!db) {
       toast.error('Database not available');
       return;
@@ -242,7 +232,10 @@ export function AddTransactionModal({
         description: tx.description,
       })).filter(t => t.category)
 
-      const result = await llmService.getSuggestion(smsText, existingCategories, existingAccounts, txForLLM);
+      const result = await llmService.getSuggestion(smsText, existingCategories, existingAccounts, txForLLM, {
+        gemini: geminiKeySetting?.value || '',
+        claude: claudeKeySetting?.value || '',
+      });
 
       if (result && result.success && result.suggestion) {
         const suggestion = result.suggestion;

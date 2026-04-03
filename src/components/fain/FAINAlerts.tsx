@@ -19,7 +19,7 @@ async function callAlertsAPI(prompt: string, geminiKey: string, claudeKey: strin
     body: JSON.stringify({ prompt, geminiKey, claudeKey }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? 'Analysis failed. Check your API key in Settings or try again.');
+  if (!res.ok) throw new Error(data.error ?? 'Analysis failed. Please try again.');
   return data.text;
 }
 
@@ -86,46 +86,46 @@ export function FAINAlerts() {
   );
 
   const runLeadLag = useCallback(async () => {
-    if (!fainContext || !hasKey) return;
+    if (!fainContext) return;
     setLeadLagLoading(true);
     try {
       const prompt = `Based on the user's category spend by month pattern below, identify 2-3 upcoming predictions: "Based on your pattern, [category] spend typically rises in [upcoming month]. Last year it was ₹X. Heads up." Only show predictions for the next 2 months.\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, geminiKey, claudeKey);
       setLeadLagResult(text);
     } catch (e: any) {
-      setLeadLagResult('Analysis failed. Check your API key in Settings or try again.');
+      setLeadLagResult('Analysis failed. Please try again.');
     } finally {
       setLeadLagLoading(false);
     }
-  }, [fainContext, hasKey, geminiKey, claudeKey]);
+  }, [fainContext, geminiKey, claudeKey]);
 
   const runSavingsGoal = useCallback(async () => {
-    if (!fainContext || !hasKey) return;
+    if (!fainContext) return;
     setSavingsLoading(true);
     try {
       const prompt = `Calculate the user's average monthly surplus (income - expense) over the last 6 months. Then suggest 2 savings goals based on their spending patterns. Format: "You typically have ₹X surplus monthly. Here are 2 suggested savings goals: [Goal 1 with target amount], [Goal 2 with target amount]".\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, geminiKey, claudeKey);
       setSavingsResult(text);
     } catch (e: any) {
-      setSavingsResult('Analysis failed. Check your API key in Settings or try again.');
+      setSavingsResult('Analysis failed. Please try again.');
     } finally {
       setSavingsLoading(false);
     }
-  }, [fainContext, hasKey, geminiKey, claudeKey]);
+  }, [fainContext, geminiKey, claudeKey]);
 
   const runLifeEvent = useCallback(async () => {
-    if (!fainContext || !hasKey) return;
+    if (!fainContext) return;
     setLifeEventLoading(true);
     try {
       const prompt = `Look for sudden new categories or >200% spend spike sustained for 3+ months in the user's data. Format: "We noticed a significant change in your spending around [month/year]. This might indicate [event type: travel, relocation, health event, celebration]. Does this match a life event?" Show max 2 observations.\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, geminiKey, claudeKey);
       setLifeEventResult(text);
     } catch (e: any) {
-      setLifeEventResult('Analysis failed. Check your API key in Settings or try again.');
+      setLifeEventResult('Analysis failed. Please try again.');
     } finally {
       setLifeEventLoading(false);
     }
-  }, [fainContext, hasKey, geminiKey, claudeKey]);
+  }, [fainContext, geminiKey, claudeKey]);
 
   return (
     <div className="px-4 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>
@@ -257,7 +257,7 @@ export function FAINAlerts() {
         icon="🔮"
         description={leadLagResult ?? 'Run to see upcoming spending predictions based on your historical patterns.'}
         status={leadLagResult ? 'WATCH' : 'NORMAL'}
-        onRefresh={hasKey ? runLeadLag : undefined}
+        onRefresh={runLeadLag}
         loading={leadLagLoading}
       />
 
@@ -268,7 +268,7 @@ export function FAINAlerts() {
         icon="🎯"
         description={savingsResult ?? 'Run to get AI-suggested savings goals based on your monthly surplus.'}
         status={savingsResult ? 'NORMAL' : 'NORMAL'}
-        onRefresh={hasKey ? runSavingsGoal : undefined}
+        onRefresh={runSavingsGoal}
         loading={savingsLoading}
       />
 
@@ -279,15 +279,10 @@ export function FAINAlerts() {
         icon="🌟"
         description={lifeEventResult ?? 'Run to detect significant changes in your spending that may indicate a life event.'}
         status={lifeEventResult ? 'WATCH' : 'NORMAL'}
-        onRefresh={hasKey ? runLifeEvent : undefined}
+        onRefresh={runLifeEvent}
         loading={lifeEventLoading}
       />
 
-      {!hasKey && (
-        <p className="text-xs text-slate-500 text-center">
-          Add your Gemini API key in <span className="text-blue-400">⚙️ Settings</span> to unlock AI-powered alerts.
-        </p>
-      )}
     </div>
   );
 }

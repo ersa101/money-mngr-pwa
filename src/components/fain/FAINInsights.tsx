@@ -17,7 +17,7 @@ async function callInsightsAPI(
     body: JSON.stringify({ prompt, geminiKey, claudeKey }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? 'Analysis failed. Check your API key in Settings or try again.');
+  if (!res.ok) throw new Error(data.error ?? 'Analysis failed. Please try again.');
   return data.text;
 }
 
@@ -39,14 +39,6 @@ export function FAINInsights() {
     },
     [fainContext]
   );
-
-  if (!hasKey) {
-    return (
-      <div className="p-6 text-center text-slate-400 text-sm">
-        Add your Gemini API key in <span className="text-blue-400">⚙️ Settings</span> to unlock FAIN Insights.
-      </div>
-    );
-  }
 
   return (
     <div className="px-4 py-4 space-y-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 180px)' }}>

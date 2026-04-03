@@ -65,7 +65,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { messages, systemPrompt, geminiKey, claudeKey } = await request.json();
+    const { messages, systemPrompt, geminiKey: userGeminiKey, claudeKey: userClaudeKey } = await request.json();
+    const geminiKey = userGeminiKey || process.env.GEMINI_API_KEY || '';
+    const claudeKey = userClaudeKey || process.env.CLAUDE_API_KEY || '';
 
     if (!messages?.length) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     if (!text) {
       return NextResponse.json(
-        { error: lastError || 'Analysis failed. Check your API key in Settings or try again.' },
+        { error: lastError || 'Analysis failed. Please try again.' },
         { status: 500 }
       );
     }

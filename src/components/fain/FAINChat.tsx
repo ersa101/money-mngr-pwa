@@ -42,7 +42,7 @@ export function FAINChat() {
 
   const send = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading || !hasKey) return;
+    if (!text || loading) return;
 
     const userMsg: ChatMessage = { role: 'user', content: text, id: Date.now().toString() };
     setMessages((prev) => [...prev, userMsg]);
@@ -74,14 +74,14 @@ export function FAINChat() {
         ...prev,
         {
           role: 'assistant',
-          content: 'Analysis failed. Check your API key in Settings or try again.',
+          content: 'Analysis failed. Please try again.',
           id: Date.now().toString() + '_err',
         },
       ]);
     } finally {
       setLoading(false);
     }
-  }, [input, loading, hasKey, messages, fainContext, geminiKey, claudeKey]);
+  }, [input, loading, messages, fainContext, geminiKey, claudeKey]);
 
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -89,17 +89,6 @@ export function FAINChat() {
       send();
     }
   };
-
-  if (!hasKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 px-6 text-center gap-3">
-        <Bot className="w-10 h-10 text-slate-500" />
-        <p className="text-slate-400 text-sm">
-          Add your Gemini API key in <span className="text-blue-400">⚙️ Settings</span> to use FAIN Chat.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col h-full" style={{ maxHeight: 'calc(100vh - 180px)' }}>
