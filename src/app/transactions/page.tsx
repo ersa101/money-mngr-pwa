@@ -10,6 +10,7 @@ import { SaveFilterModal, computeBillingDates } from '@/components/transactions/
 import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import toast from 'react-hot-toast'
+import { debouncedSync } from '@/lib/sync'
 
 type TypeFilter = 'all' | 'expense' | 'income' | 'transfer'
 type DateGrouping = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'semi-annual' | 'annual' | 'none'
@@ -451,6 +452,7 @@ function TransactionsPage() {
       updatedAt: now.toISOString(),
     };
     await db.transactions.add(copy);
+    debouncedSync();
     toast.success('Transaction duplicated');
   };
 
@@ -462,6 +464,7 @@ function TransactionsPage() {
     if (confirm('Are you sure you want to delete this transaction?')) {
       // Basic deletion, doesn't account for balance updates or linked txns from v3
       await db.transactions.delete(transaction.id!);
+      debouncedSync();
       toast.success('Transaction deleted');
       handleCloseModal();
     }

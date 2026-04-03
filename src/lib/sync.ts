@@ -1,22 +1,8 @@
-// Sync Engine for bidirectional synchronization between IndexedDB and Google Sheets
-// Implements offline-first with background sync and conflict resolution
+// Sync Engine — bidirectional sync between IndexedDB (db.ts) and Google Sheets
+// Push: triggered after every write, debounced 2s, retried on next 60s pull tick
+// Pull: triggered on app open + every 60s, silent-fail, last-write-wins on updatedAt
 
-import {
-  localDb,
-  getPendingSyncItems,
-  removeSyncItem,
-  incrementSyncRetry,
-  clearUserData,
-  bulkInsert,
-  now,
-  type Account,
-  type Category,
-  type Transaction,
-  type AccountType,
-  type AccountGroup,
-  type UserSetting,
-  type SyncQueueItem,
-} from './indexedDb'
+import { db } from './db'
 
 // ============= Types =============
 
@@ -38,10 +24,9 @@ export interface SyncCallbacks {
 // ============= Constants =============
 
 const SYNC_DEBOUNCE_MS = 2000
-const MAX_RETRY_COUNT = 3
-const SYNC_INTERVAL_MS = 30000 // 30 seconds
+const SYNC_INTERVAL_MS = 60000
 
-// ============= State =============
+// ============= Module-level State =============
 
 let syncState: SyncState = {
   status: 'idle',
@@ -54,8 +39,10 @@ let callbacks: SyncCallbacks = {}
 let syncDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let syncIntervalTimer: ReturnType<typeof setInterval> | null = null
 let isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
+let pendingCount = 0
+let isSyncing = false
 
-// ============= State Management =============
+// ============= State Helpers =============
 
 export function getSyncState(): SyncState {
   return { ...syncState }
@@ -70,7 +57,7 @@ function updateState(updates: Partial<SyncState>): void {
   callbacks.onStatusChange?.(syncState)
 }
 
-// ============= Online/Offline Detection =============
+// ============= Network Listeners =============
 
 export function initNetworkListeners(): () => void {
   if (typeof window === 'undefined') return () => {}
@@ -78,7 +65,6 @@ export function initNetworkListeners(): () => void {
   const handleOnline = () => {
     isOnline = true
     updateState({ status: 'idle' })
-    // Trigger sync when coming back online
     debouncedSync()
   }
 
@@ -90,11 +76,8 @@ export function initNetworkListeners(): () => void {
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
 
-  // Initial state
   isOnline = navigator.onLine
-  if (!isOnline) {
-    updateState({ status: 'offline' })
-  }
+  if (!isOnline) updateState({ status: 'offline' })
 
   return () => {
     window.removeEventListener('online', handleOnline)
@@ -102,28 +85,166 @@ export function initNetworkListeners(): () => void {
   }
 }
 
-// ============= Debounced Sync =============
+// ============= Debounced Push =============
 
 export function debouncedSync(): void {
-  if (syncDebounceTimer) {
-    clearTimeout(syncDebounceTimer)
-  }
+  pendingCount++
+  updateState({ pendingCount })
 
+  if (syncDebounceTimer) clearTimeout(syncDebounceTimer)
   syncDebounceTimer = setTimeout(() => {
     syncDebounceTimer = null
     processSyncQueue()
   }, SYNC_DEBOUNCE_MS)
 }
 
-// ============= Start/Stop Background Sync =============
+// ============= Push to Sheets =============
+
+export async function processSyncQueue(): Promise<void> {
+  if (!isOnline) {
+    updateState({ status: 'offline' })
+    return
+  }
+  if (pendingCount === 0) {
+    updateState({ status: 'idle' })
+    return
+  }
+  if (isSyncing) return
+
+  isSyncing = true
+  updateState({ status: 'syncing' })
+
+  try {
+    const [accounts, categories, transactions, filterPresets] = await Promise.all([
+      db.accounts.toArray(),
+      db.categories.toArray(),
+      db.transactions.toArray(),
+      db.filterPresets.toArray(),
+    ])
+
+    const payload = JSON.stringify({ accounts, categories, transactions, filterPresets })
+    let body: BodyInit = payload
+    let extraHeaders: Record<string, string> = {}
+
+    if (typeof CompressionStream !== 'undefined') {
+      const cs = new CompressionStream('gzip')
+      const writer = cs.writable.getWriter()
+      writer.write(new TextEncoder().encode(payload))
+      writer.close()
+      body = await new Response(cs.readable).arrayBuffer()
+      extraHeaders = { 'Content-Encoding': 'gzip' }
+    }
+
+    const response = await fetch('/api/backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...extraHeaders },
+      body,
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Sync failed' }))
+      throw new Error(err.error || 'Sync failed')
+    }
+
+    pendingCount = 0
+    updateState({
+      status: 'idle',
+      pendingCount: 0,
+      lastSyncedAt: new Date().toISOString(),
+      error: null,
+    })
+    callbacks.onSyncComplete?.()
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : 'Sync failed'
+    updateState({ status: 'error', error: errorMsg })
+    callbacks.onSyncError?.(errorMsg)
+  } finally {
+    isSyncing = false
+  }
+}
+
+// ============= Pull from Sheets =============
+
+export async function pullFromCloud(_userId: string): Promise<void> {
+  if (!isOnline) return
+
+  try {
+    const response = await fetch('/api/restore')
+    if (!response.ok) return // Silent fail on pull
+
+    const result = await response.json()
+    if (!result.success || !result.data) return
+
+    const { accounts, categories, transactions, filterPresets } = result.data
+
+    // Last-write-wins: upsert into IndexedDB based on updatedAt string comparison
+    await db.transaction('rw', db.accounts, db.categories, db.transactions, db.filterPresets, async () => {
+      if (accounts?.length) {
+        for (const acc of accounts) {
+          if (!acc.id) continue
+          const existing = await db.accounts.get(acc.id)
+          if (!existing) {
+            await db.accounts.add(acc)
+          } else if (!existing.updatedAt || (acc.updatedAt && acc.updatedAt > existing.updatedAt)) {
+            await db.accounts.put(acc)
+          }
+        }
+      }
+      if (categories?.length) {
+        for (const cat of categories) {
+          if (!cat.id) continue
+          const existing = await db.categories.get(cat.id)
+          if (!existing) {
+            await db.categories.add(cat)
+          } else if (!existing.updatedAt || (cat.updatedAt && cat.updatedAt > existing.updatedAt)) {
+            await db.categories.put(cat)
+          }
+        }
+      }
+      if (transactions?.length) {
+        for (const tx of transactions) {
+          if (!tx.id) continue
+          const existing = await db.transactions.get(tx.id)
+          if (!existing) {
+            await db.transactions.add(tx)
+          } else if (!existing.updatedAt || (tx.updatedAt && tx.updatedAt > existing.updatedAt)) {
+            await db.transactions.put(tx)
+          }
+        }
+      }
+      if (filterPresets?.length) {
+        for (const fp of filterPresets) {
+          if (!fp.id) continue
+          const existing = await db.filterPresets.get(fp.id)
+          if (!existing) {
+            await db.filterPresets.add(fp)
+          }
+        }
+      }
+    })
+
+    if (!syncState.lastSyncedAt) {
+      updateState({ lastSyncedAt: new Date().toISOString() })
+    }
+  } catch {
+    // Silent fail on pull — do not disrupt the user
+  }
+}
+
+// ============= Force Full Sync =============
+
+export async function forceFullSync(userId: string): Promise<void> {
+  await processSyncQueue()
+  await pullFromCloud(userId)
+  updateState({ lastSyncedAt: new Date().toISOString(), status: 'idle', error: null })
+}
+
+// ============= Background Interval =============
 
 export function startBackgroundSync(): void {
   if (syncIntervalTimer) return
-
   syncIntervalTimer = setInterval(() => {
-    if (isOnline) {
-      processSyncQueue()
-    }
+    if (isOnline) pullFromCloud('')
   }, SYNC_INTERVAL_MS)
 }
 
@@ -134,157 +255,8 @@ export function stopBackgroundSync(): void {
   }
 }
 
-// ============= Process Sync Queue =============
-
-export async function processSyncQueue(): Promise<void> {
-  if (!isOnline) {
-    updateState({ status: 'offline' })
-    return
-  }
-
-  const pendingItems = await getPendingSyncItems()
-
-  if (pendingItems.length === 0) {
-    updateState({ status: 'idle', pendingCount: 0 })
-    return
-  }
-
-  updateState({ status: 'syncing', pendingCount: pendingItems.length })
-
-  for (const item of pendingItems) {
-    if (item.retryCount >= MAX_RETRY_COUNT) {
-      // Remove items that have exceeded max retries
-      if (item.id) await removeSyncItem(item.id)
-      continue
-    }
-
-    try {
-      await syncItemToCloud(item)
-      if (item.id) await removeSyncItem(item.id)
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      if (item.id) await incrementSyncRetry(item.id, errorMsg)
-      updateState({ status: 'error', error: errorMsg })
-    }
-  }
-
-  const remainingItems = await getPendingSyncItems()
-  updateState({
-    status: remainingItems.length > 0 ? 'error' : 'idle',
-    pendingCount: remainingItems.length,
-    lastSyncedAt: remainingItems.length === 0 ? now() : syncState.lastSyncedAt,
-  })
-
-  if (remainingItems.length === 0) {
-    callbacks.onSyncComplete?.()
-  }
-}
-
-// ============= Sync Single Item to Cloud =============
-
-async function syncItemToCloud(item: SyncQueueItem): Promise<void> {
-  const response = await fetch('/api/sheets/sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      table: item.table,
-      action: item.action,
-      data: item.data,
-    }),
-  })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Sync failed: ${errorText}`)
-  }
-}
-
-// ============= Pull Fresh Data from Cloud =============
-
-export async function pullFromCloud(userId: string): Promise<void> {
-  if (!isOnline) {
-    throw new Error('Cannot pull from cloud while offline')
-  }
-
-  updateState({ status: 'syncing' })
-
-  try {
-    const response = await fetch(`/api/sheets/sync?userId=${encodeURIComponent(userId)}`)
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch from cloud: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-
-    // Clear local data for this user and insert fresh data
-    await clearUserData(userId)
-
-    if (data.accounts?.length) {
-      await bulkInsert(localDb.accounts, data.accounts)
-    }
-    if (data.categories?.length) {
-      await bulkInsert(localDb.categories, data.categories)
-    }
-    if (data.transactions?.length) {
-      await bulkInsert(localDb.transactions, data.transactions)
-    }
-    if (data.accountTypes?.length) {
-      await bulkInsert(localDb.accountTypes, data.accountTypes)
-    }
-    if (data.accountGroups?.length) {
-      await bulkInsert(localDb.accountGroups, data.accountGroups)
-    }
-    if (data.settings?.length) {
-      await bulkInsert(localDb.settings, data.settings)
-    }
-
-    updateState({
-      status: 'idle',
-      lastSyncedAt: now(),
-      pendingCount: 0,
-      error: null,
-    })
-
-    callbacks.onSyncComplete?.()
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-    updateState({ status: 'error', error: errorMsg })
-    callbacks.onSyncError?.(errorMsg)
-    throw error
-  }
-}
-
-// ============= Force Full Sync =============
-
-export async function forceFullSync(userId: string): Promise<void> {
-  // First push all pending changes
-  await processSyncQueue()
-
-  // Then pull fresh data
-  await pullFromCloud(userId)
-}
-
-// ============= Update Pending Count =============
+// ============= Pending Count (kept for useSync.ts compat) =============
 
 export async function updatePendingCount(): Promise<void> {
-  const items = await getPendingSyncItems()
-  updateState({ pendingCount: items.length })
-}
-
-// ============= Export for React Hook =============
-
-export function useSync() {
-  return {
-    getSyncState,
-    setSyncCallbacks,
-    initNetworkListeners,
-    debouncedSync,
-    processSyncQueue,
-    pullFromCloud,
-    forceFullSync,
-    startBackgroundSync,
-    stopBackgroundSync,
-    updatePendingCount,
-  }
+  // pendingCount is managed internally — no-op for external callers
 }

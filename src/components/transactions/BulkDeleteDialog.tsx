@@ -13,6 +13,7 @@ import {
 import { Loader2, AlertTriangle, Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/currency-utils';
 import toast from 'react-hot-toast';
+import { debouncedSync } from '@/lib/sync';
 
 interface BulkDeleteDialogProps {
   isOpen: boolean;
@@ -97,6 +98,7 @@ export function BulkDeleteDialog({
         await db.transactions.where('id').anyOf(ids).delete();
       });
 
+      debouncedSync();
       toast.success(`Deleted ${transactions.length} transactions`);
       onSuccess();
     } catch (error) {

@@ -2,6 +2,7 @@
 
 import type { MySubClassedDB } from './db'
 import { validateCSV } from './csvValidator'
+import { debouncedSync } from './sync'
 
 export interface CSVRow {
   date?: string
@@ -495,6 +496,8 @@ export async function importTransactionsFromCSV(
 
   currentStep = rows.length
   reportProgress()
+
+  if (transactionsToAdd.length > 0) debouncedSync()
 
   return { imported: transactionsToAdd.length, errors }
 }

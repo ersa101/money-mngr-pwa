@@ -1,4 +1,4 @@
-// React hook for managing sync state and operations
+// React hook for sync state and operations
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -16,6 +16,8 @@ import {
   type SyncState,
 } from '@/lib/sync'
 
+export type { SyncState }
+
 export interface UseSyncReturn {
   syncState: SyncState
   isOnline: boolean
@@ -30,32 +32,22 @@ export function useSync(userId: string | null | undefined): UseSyncReturn {
   const [isOnline, setIsOnline] = useState(true)
   const cleanupRef = useRef<(() => void) | null>(null)
 
-  // Initialize network listeners and callbacks
   useEffect(() => {
-    // Set up callbacks
     setSyncCallbacks({
       onStatusChange: (state) => {
         setSyncState(state)
         setIsOnline(state.status !== 'offline')
       },
-      onSyncComplete: () => {
-        console.log('Sync completed successfully')
-      },
+      onSyncComplete: () => {},
       onSyncError: (error) => {
         console.error('Sync error:', error)
       },
     })
 
-    // Initialize network listeners
     cleanupRef.current = initNetworkListeners()
-
-    // Start background sync
     startBackgroundSync()
-
-    // Initial pending count update
     updatePendingCount()
 
-    // Set initial online state
     if (typeof navigator !== 'undefined') {
       setIsOnline(navigator.onLine)
     }
@@ -66,42 +58,25 @@ export function useSync(userId: string | null | undefined): UseSyncReturn {
     }
   }, [])
 
-  // Process sync queue (push local changes to cloud)
   const sync = useCallback(async () => {
     await processSyncQueue()
   }, [])
 
-  // Pull fresh data from cloud
   const pullData = useCallback(async () => {
-    if (!userId) {
-      console.warn('Cannot pull data without userId')
-      return
-    }
+    if (!userId) return
     await pullFromCloud(userId)
   }, [userId])
 
-  // Force full sync (push then pull)
   const forceSync = useCallback(async () => {
-    if (!userId) {
-      console.warn('Cannot force sync without userId')
-      return
-    }
+    if (!userId) return
     await forceFullSync(userId)
   }, [userId])
 
-  // Trigger debounced sync
   const triggerSync = useCallback(() => {
     debouncedSync()
   }, [])
 
-  return {
-    syncState,
-    isOnline,
-    sync,
-    pullData,
-    forceSync,
-    triggerSync,
-  }
+  return { syncState, isOnline, sync, pullData, forceSync, triggerSync }
 }
 
 export default useSync
