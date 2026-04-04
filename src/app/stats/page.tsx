@@ -27,23 +27,23 @@ export default function StatsPage() {
     <div className="min-h-screen bg-background pb-24">
       {/* Header — sticky so period selector stays visible while scrolling */}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between mb-6">
+        <div className="max-w-7xl mx-auto px-4 py-3 md:py-6">
+          <div className="flex items-center justify-between mb-3 md:mb-6">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-primary/10 rounded-lg text-primary">
-                <BarChart3 className="w-6 h-6" />
+                <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Stats & Insights</h1>
-                <p className="text-sm text-muted-foreground">
+                <h1 className="text-xl md:text-2xl font-bold">Stats & Insights</h1>
+                <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
                   Comprehensive financial analytics and trends
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Period Filter */}
-          <div className="flex flex-wrap gap-2 items-center">
+          {/* Period Filter — horizontally scrollable on mobile */}
+          <div className="flex overflow-x-auto gap-2 items-center pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <span className="text-sm text-muted-foreground">Period:</span>
 
             <button

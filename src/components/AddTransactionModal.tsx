@@ -591,7 +591,7 @@ export function AddTransactionModal({
   // ═══════════════════════════════════════════════════════════════
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto md:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {editTransaction ? 'Edit Transaction' : 'Add Transaction'}

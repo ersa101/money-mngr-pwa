@@ -43,5 +43,5 @@ export function AppContent({ children }: { children: React.ReactNode }) {
     )
   }
 
-  return <div className="pb-20">{children}</div>
+  return <div className="pb-20 md:pb-0">{children}</div>
 }

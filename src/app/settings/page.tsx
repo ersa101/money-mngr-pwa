@@ -260,20 +260,20 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-background pb-24">
       {/* Header */}
       <div className="border-b border-border bg-card/50">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3 mb-6">
+        <div className="max-w-6xl mx-auto px-4 py-3 md:py-6">
+          <div className="flex items-center gap-3 mb-3 md:mb-6">
             <div className="p-2 bg-primary/10 rounded-lg text-primary">
-              <Settings className="w-6 h-6" />
+              <Settings className="w-5 h-5 md:w-6 md:h-6" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs md:text-sm text-muted-foreground">
                 Manage categories, accounts, and data
               </p>
             </div>
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-2">
+          {/* Tabs — horizontally scrollable on mobile */}
+          <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             <button
               onClick={() => setActiveTab('data')}
               className={`px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition ${

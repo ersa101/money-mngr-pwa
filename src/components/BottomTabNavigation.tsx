@@ -20,8 +20,8 @@ export function BottomTabNavigation() {
   ]
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 border-t border-slate-700 bg-slate-900 z-50">
-      <div className="max-w-4xl mx-auto flex justify-around h-16">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 border-t border-slate-700 bg-slate-900 z-50">
+      <div className="flex justify-around h-16" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         {tabs.map(({ href, icon: Icon, label }) => (
           <Link
             key={href}

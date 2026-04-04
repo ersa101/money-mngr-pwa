@@ -599,7 +599,7 @@ function TransactionsPage() {
 
             <button
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+              className="hidden md:flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Plus size={18} />
             </button>
@@ -649,8 +649,8 @@ function TransactionsPage() {
           {/* ── Collapsible filter section ── */}
           {showFilters && (
             <>
-              {/* Type Pills */}
-              <div className="flex gap-2 flex-wrap">
+              {/* Type Pills — horizontally scrollable on mobile */}
+              <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {(['all', 'expense', 'income', 'transfer'] as const).map((f) => (
                   <button
                     key={f}
@@ -908,6 +908,15 @@ function TransactionsPage() {
           )}
         </div>
       </div>
+
+      {/* FAB — mobile only, fixed bottom-right above bottom nav */}
+      <button
+        onClick={() => setIsModalOpen(true)}
+        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
+        aria-label="Add transaction"
+      >
+        <Plus size={24} />
+      </button>
 
       <AddTransactionModal
         isOpen={isModalOpen}
