@@ -10,6 +10,7 @@ import { SaveFilterModal, computeBillingDates } from '@/components/transactions/
 import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import toast from 'react-hot-toast'
+import { debouncedSync } from '@/lib/sync'
 
 type TypeFilter = 'all' | 'expense' | 'income' | 'transfer'
 type DateGrouping = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'semi-annual' | 'annual' | 'none'
@@ -163,6 +164,7 @@ function TransactionsPage() {
       setShowSearchSuggestions(false)
     }
   }
+
 
   // Get unique categories from transactions for filter dropdown.
   // Scoped to the currently selected typeFilter so that when the user picks
@@ -450,6 +452,7 @@ function TransactionsPage() {
       updatedAt: now.toISOString(),
     };
     await db.transactions.add(copy);
+    debouncedSync();
     toast.success('Transaction duplicated');
   };
 
@@ -461,6 +464,7 @@ function TransactionsPage() {
     if (confirm('Are you sure you want to delete this transaction?')) {
       // Basic deletion, doesn't account for balance updates or linked txns from v3
       await db.transactions.delete(transaction.id!);
+      debouncedSync();
       toast.success('Transaction deleted');
       handleCloseModal();
     }
@@ -595,7 +599,7 @@ function TransactionsPage() {
 
             <button
               onClick={() => setIsModalOpen(true)}
-              className="flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+              className="hidden md:flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Plus size={18} />
             </button>
@@ -645,8 +649,8 @@ function TransactionsPage() {
           {/* ── Collapsible filter section ── */}
           {showFilters && (
             <>
-              {/* Type Pills */}
-              <div className="flex gap-2 flex-wrap">
+              {/* Type Pills — horizontally scrollable on mobile */}
+              <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {(['all', 'expense', 'income', 'transfer'] as const).map((f) => (
                   <button
                     key={f}
@@ -808,6 +812,7 @@ function TransactionsPage() {
           </div>
         )}
 
+
         {/* Date Grouping Pills */}
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
           {dateGroupingOptions.map((option) => (
@@ -904,12 +909,22 @@ function TransactionsPage() {
         </div>
       </div>
 
+      {/* FAB — mobile only, fixed bottom-right above bottom nav */}
+      <button
+        onClick={() => setIsModalOpen(true)}
+        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
+        aria-label="Add transaction"
+      >
+        <Plus size={24} />
+      </button>
+
       <AddTransactionModal
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         editTransaction={editingTransaction}
         onCopy={editingTransaction ? handleCopy : undefined}
         onDelete={editingTransaction ? handleDelete : undefined}
+
       />
 
       <SaveFilterModal

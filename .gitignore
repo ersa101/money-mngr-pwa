@@ -67,6 +67,7 @@ next-env.d.ts
 client_secret*.json
 *-googleprojectapi.json
 *googleproject*.json
+*MASTERapi.json
 *.credentials.json
 *.xlsx
 *.docx

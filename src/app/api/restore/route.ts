@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
         transactions: data.transactions?.length || 0,
         filterPresets: data.filterPresets?.length || 0,
       },
-      _diag,  // visible in browser Network tab for debugging — remove after confirmed working
+      _diag,
     });
   } catch (error: any) {
     console.error('Restore failed:', error);
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
       {
         error: error.message || 'Restore failed',
         stage: error.message?.match(/\[stage:([^\]]+)\]/)?.[1] ?? 'unknown',
-        keyDiag: _keyDiag,  // tells you which key format was detected + which env vars are set
+        keyDiag: _keyDiag,
       },
       { status: 500 }
     );

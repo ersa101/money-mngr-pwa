@@ -1,18 +1,27 @@
 'use client'
 
+import { useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { useDbStatus } from '@/contexts/DbContext'
 import { usePathname } from 'next/navigation'
+import { pullFromCloud } from '@/lib/sync'
 
 export function AppContent({ children }: { children: React.ReactNode }) {
   const { isReady, hasDb } = useDbStatus()
+  const { data: session, status } = useSession()
   const pathname = usePathname()
 
-  // Login page doesn't need database
+  // Pull from cloud on app open, once authenticated and DB is ready
+  useEffect(() => {
+    if (status !== 'authenticated' || !isReady || pathname === '/login') return
+    const userId = session?.user?.id || session?.user?.email || ''
+    pullFromCloud(userId)
+  }, [status, isReady, pathname, session?.user?.id, session?.user?.email])
+
   if (pathname === '/login') {
     return <>{children}</>
   }
 
-  // Show loading while database is initializing
   if (!isReady) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -24,8 +33,6 @@ export function AppContent({ children }: { children: React.ReactNode }) {
     )
   }
 
-  // If not authenticated and not on login page, middleware will redirect
-  // But just in case, show a message
   if (!hasDb && pathname !== '/login') {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -36,5 +43,5 @@ export function AppContent({ children }: { children: React.ReactNode }) {
     )
   }
 
-  return <>{children}</>
+  return <div className="pb-20 md:pb-0">{children}</div>
 }

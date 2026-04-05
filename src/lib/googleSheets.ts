@@ -16,12 +16,12 @@ function resolvePrivateKey(): { key: string; format: string } {
     const key = raw.replace(/\\n/g, '\n').replace(/\r\n/g, '\n').trim();
     return { key, format: 'escaped-newlines' };
   }
-  // Case 2: real newlines already present (some platforms inject them directly)
+  // Case 2: real newlines already present
   if (raw.includes('\n')) {
     const key = raw.replace(/\r\n/g, '\n').trim();
     return { key, format: 'real-newlines' };
   }
-  // Case 3: base64-encoded key (some hosting providers base64-encode secrets)
+  // Case 3: base64-encoded key
   try {
     const decoded = Buffer.from(raw, 'base64').toString('utf-8');
     if (decoded.includes('PRIVATE KEY')) {
@@ -29,7 +29,6 @@ function resolvePrivateKey(): { key: string; format: string } {
     }
   } catch {}
 
-  // Case 4: single-line with no separators — may still work or surface a better error
   return { key: raw.trim(), format: 'single-line' };
 }
 
@@ -38,8 +37,6 @@ let _sheets: ReturnType<typeof google.sheets> | null = null;
 export let _keyDiag: { credSource: string; format?: string; hasEmail: boolean; hasSpreadsheetId: boolean } | null = null;
 
 function getCredentials(): { credentials: any; credSource: string; keyFormat?: string } {
-  // Option A: Full service account JSON as base64 (preferred — no OpenSSL key parsing at all)
-  // Set GOOGLE_SERVICE_ACCOUNT_JSON in Vercel = base64 of your service account .json file
   const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (b64) {
     try {
@@ -52,7 +49,6 @@ function getCredentials(): { credentials: any; credSource: string; keyFormat?: s
     }
   }
 
-  // Option B: Individual env vars (fallback — subject to OpenSSL 3 key parsing)
   const { key, format } = resolvePrivateKey();
   if (!key) throw new Error(`GOOGLE_PRIVATE_KEY is not set (detected format: ${format})`);
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL is not set');
@@ -105,7 +101,6 @@ interface BackupData {
 const SHEETS_CONFIG = [
   {
     name: 'accounts',
-    // userId comes first; the rest are the actual data fields
     headers: ['userId', 'id', 'name', 'type', 'balance', 'thresholdValue', 'color', 'icon', 'group', 'includeInNetWorth', 'isLiability', 'createdAt', 'updatedAt'],
   },
   {
@@ -123,7 +118,6 @@ const SHEETS_CONFIG = [
 ] as const;
 
 // Human-readable labels for the header row (row 1) of each sheet.
-// These are purely for display — restore logic uses SHEETS_CONFIG headers, not row 1.
 const DISPLAY_HEADERS: Record<string, string> = {
   userId:              'User ID',
   id:                  'ID',
@@ -157,7 +151,6 @@ const DISPLAY_HEADERS: Record<string, string> = {
   subCategoryName:     'SubCategory Name',
   searchText:          'Search Text',
   accountId:           'Account ID',
-  transactionType:     'Transaction Type',
   dateOffsetType:      'Date Offset Type',
   dateOffsetStart:     'Date Offset Start',
   dateOffsetEnd:       'Date Offset End',
@@ -200,7 +193,6 @@ async function readAllRows(sheetName: string): Promise<string[][]> {
 
 /** Overwrite all data rows in a sheet (A2 onward) with the provided rows. */
 async function writeAllRows(sheetName: string, rows: string[][]): Promise<void> {
-  // Clear existing data rows first
   try {
     await getSheetsClient().spreadsheets.values.clear({
       spreadsheetId: getSpreadsheetId(),
@@ -244,7 +236,7 @@ function serializeRow(item: any, headers: readonly string[], userId: string): st
 function deserializeRow(row: string[], headers: readonly string[]): Record<string, any> {
   const obj: Record<string, any> = {};
   headers.forEach((header, index) => {
-    if (header === 'userId') return; // strip — callers never see it
+    if (header === 'userId') return;
 
     let value: any = row[index] ?? '';
 
@@ -258,7 +250,6 @@ function deserializeRow(row: string[], headers: readonly string[]): Record<strin
       value = value ? parseInt(value) : undefined;
     } else if (['includeInNetWorth', 'isLiability'].includes(header)) {
       if (value === '') {
-        // Blank cell: use safe defaults — include in net worth by default, not a liability
         value = header === 'includeInNetWorth' ? true : false;
       } else {
         value = value === 'TRUE' || value === true;
@@ -286,8 +277,7 @@ export async function backupToSheets(data: BackupData, userId: string): Promise<
     // 2. Keep rows that belong to OTHER users (col 0 = userId)
     const otherUsersRows = allRows.filter((row) => row[0] !== userId);
 
-    // 3. Serialize this user's latest data (userId prepended)
-    // For transactions, enrich with human-readable category/subcategory names
+    // 3. Serialize this user's latest data
     let enrichedData = sheetData;
     if (config.name === 'transactions') {
       const categoryMap = new Map<number, string>();
@@ -320,7 +310,6 @@ export async function restoreFromSheets(
   const result: BackupData = { accounts: [], categories: [], transactions: [], filterPresets: [] };
   const diag: Record<string, any> = { userIdCandidates, sheets: {} };
 
-  // Validate client init (surfaces key/env errors early with a clear message)
   let stage = 'init';
   try {
     getSheetsClient();
@@ -366,7 +355,45 @@ export async function restoreFromSheets(
   return { ...result, _diag: diag };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FAIN FEEDBACK — appends a single row to the FAIN_Feedback_Log sheet.
+// ═══════════════════════════════════════════════════════════════
+
+const FEEDBACK_SHEET_NAME = 'FAIN_Feedback_Log';
+const FEEDBACK_HEADERS = [
+  'timestamp', 'feature_id', 'insight_type', 'insight_summary',
+  'user_response', 'user_reason', 'category_context', 'subcategory_context', 'month_year',
+];
+
+export async function appendFeedbackRow(row: string[]): Promise<void> {
+  try {
+    const existing = await getSheetsClient().spreadsheets.values.get({
+      spreadsheetId: getSpreadsheetId(),
+      range: `${FEEDBACK_SHEET_NAME}!A1:A1`,
+    });
+    if (!existing.data.values?.length) {
+      await getSheetsClient().spreadsheets.values.update({
+        spreadsheetId: getSpreadsheetId(),
+        range: `${FEEDBACK_SHEET_NAME}!A1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [FEEDBACK_HEADERS] },
+      });
+    }
+  } catch (e: any) {
+    // Sheet may not exist — silently skip header
+  }
+
+  await getSheetsClient().spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: `${FEEDBACK_SHEET_NAME}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [row] },
+  });
+}
+
 export const sheetsClient = {
   backupToSheets,
   restoreFromSheets,
+  appendFeedbackRow,
 };

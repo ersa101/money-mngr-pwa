@@ -1,4 +1,4 @@
-// Based on V2 and V3 prompts
+// Based on V2 and V3 prompts — Phase 1 additions at bottom
 
 export interface ThresholdWarning {
   accountId: number
@@ -48,24 +48,6 @@ export interface Category {
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
 export type TransactionSource = 'MANUAL' | 'CSV_IMPORT' | 'MAGIC_BOX';
 
-export interface FilterPreset {
-  id?: number;
-  name: string;
-  searchText?: string;
-  accountId?: number;
-  transactionType?: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'all';
-  categoryId?: number;
-  subCategoryId?: number;
-  // 'custom' stores fixed dates in dateOffsetStart/End
-  // 'billing-NN-MM' e.g. 'billing-26-25' computes current cycle at apply-time
-  dateOffsetType?: string;
-  dateOffsetStart?: string; // ISO date string, used when dateOffsetType === 'custom'
-  dateOffsetEnd?: string;   // ISO date string, used when dateOffsetType === 'custom'
-  amountMin?: number;
-  amountMax?: number;
-  createdAt?: string;
-}
-
 export interface Transaction {
   id?: number;
   date: string;
@@ -86,4 +68,70 @@ export interface Transaction {
   csvSubcategory?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+// ─── Phase 1 additions ────────────────────────────────────────────────────────
+
+export interface Budget {
+  id?: number;
+  categoryId: number;
+  categoryName: string;
+  monthlyLimit: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Goal {
+  id?: number;
+  name: string;
+  targetAmount: number;
+  currentAmount: number;
+  suggestedByAI: boolean;
+  createdAt: string;
+  status: 'ACTIVE' | 'COMPLETED' | 'DISMISSED';
+}
+
+export interface LifeEvent {
+  id?: number;
+  detectedMonth: string;   // "YYYY-MM"
+  eventType: string;
+  aiSummary: string;
+  confirmedByUser: boolean;
+  createdAt: string;
+}
+
+export interface FeedbackLog {
+  id?: number;
+  timestamp: string;
+  featureId: string;
+  insightType: string;
+  insightSummary: string;
+  userResponse: 'POSITIVE' | 'NEGATIVE' | number;
+  userReason?: string;
+  categoryContext?: string;
+  subcategoryContext?: string;
+  monthYear: string;
+  syncedToSheet: boolean;
+}
+
+export interface AppSetting {
+  key: string;
+  value: string;
+}
+
+// ─── Phase 2 additions ────────────────────────────────────────────────────────
+
+export interface ComputedInsight {
+  id?: number;
+  key: string;        // e.g. 'lifestyle_inflation', 'seasonal_heatmap', 'correlation_web'
+  value: string;      // JSON stringified result
+  computedAt: string; // ISO timestamp
+  version: number;    // increment if computation logic changes, triggers recompute
+}
+
+export interface CategoryBucket {
+  id?: number;
+  categoryId: number;
+  categoryName: string;
+  bucketName: 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST';
 }

@@ -24,7 +24,6 @@ export async function POST(request: NextRequest) {
       data = await request.json();
     }
 
-    // Only this user's rows are replaced in the shared sheet
     await sheetsClient.backupToSheets(data, userId);
 
     return NextResponse.json({
@@ -35,6 +34,7 @@ export async function POST(request: NextRequest) {
         accounts: data.accounts?.length || 0,
         categories: data.categories?.length || 0,
         transactions: data.transactions?.length || 0,
+        filterPresets: data.filterPresets?.length || 0,
       },
     });
   } catch (error: any) {

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
-import { LayoutGrid, Landmark, BarChart3, Settings, LogOut } from 'lucide-react'
+import { LayoutGrid, Home, CreditCard, Landmark, BarChart3, Brain, Settings, LogOut } from 'lucide-react'
 import { SyncStatusIndicator } from './SyncStatusIndicator'
 import { useSync } from '@/hooks/useSync'
 
@@ -21,7 +21,7 @@ export function Navigation() {
   if (pathname === '/login') return null
 
   return (
-    <nav className="border-b border-border bg-card">
+    <nav className="hidden md:block border-b border-border bg-card">
       <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-16">
         <Link href="/" className="font-bold text-lg flex items-center gap-2">
           <div className="p-1.5 bg-primary/10 rounded text-primary">
@@ -32,13 +32,25 @@ export function Navigation() {
 
         <div className="flex gap-1 items-center">
           <Link
+            href="/home"
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+              isActive('/home')
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}
+          >
+            <Home className="w-4 h-4" />
+            Home
+          </Link>
+          <Link
             href="/transactions"
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
               isActive('/transactions')
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
           >
+            <CreditCard className="w-4 h-4" />
             Transactions
           </Link>
           <Link
@@ -62,6 +74,17 @@ export function Navigation() {
           >
             <BarChart3 className="w-4 h-4" />
             Stats
+          </Link>
+          <Link
+            href="/fain"
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+              isActive('/fain')
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            }`}
+          >
+            <Brain className="w-4 h-4" />
+            FAIN
           </Link>
           <Link
             href="/settings"

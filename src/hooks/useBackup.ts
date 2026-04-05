@@ -9,7 +9,6 @@ export function useBackup() {
   const [isRestoring, setIsRestoring] = useState(false);
   const db = useDb();
   const { data: session } = useSession();
-  // Use a per-user localStorage key so the timestamp is scoped to the Google account
   const backupTimestampKey = `lastBackupAt_${session?.user?.id || 'anonymous'}`;
 
   const backupNow = async () => {
@@ -25,7 +24,6 @@ export function useBackup() {
       const payload = JSON.stringify({ accounts, categories, transactions, filterPresets });
 
       // Gzip-compress to stay under Vercel's 4.5 MB serverless payload limit.
-      // JSON with repetitive keys (transactions) typically shrinks ~90%.
       let body: BodyInit = payload;
       let extraHeaders: Record<string, string> = {};
       if (typeof CompressionStream !== 'undefined') {
@@ -105,6 +103,7 @@ export function useBackup() {
         }
       });
 
+      localStorage.setItem(backupTimestampKey, new Date().toISOString());
       toast.dismiss();
       toast.success('Data restored successfully!');
     } catch (error: any) {

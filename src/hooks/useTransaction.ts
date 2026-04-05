@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { db, type Account, type Transaction } from '../lib/db'
 import { ActionLogger } from '../lib/actionLogger'
+import { debouncedSync } from '../lib/sync'
 
 export type CreateTransactionInput = {
   fromAccountId: number
@@ -103,10 +104,10 @@ export function useTransaction() {
         })
 
         setLoading(false)
-        // Log transaction creation
         if (txId) {
           ActionLogger.transactionCreate(txId, input.amount, input.description)
         }
+        debouncedSync()
         return { success: true, id: txId }
       } catch (err: any) {
         const errorMsg = err?.message || String(err)
