@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { resolveServerKeys } from '@/lib/resolveAIKey';
 
 async function callGemini(prompt: string, apiKey: string): Promise<string> {
   const res = await fetch(
@@ -45,8 +46,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const { prompt, geminiKey: userGeminiKey, claudeKey: userClaudeKey } = await request.json();
-    const geminiKey = userGeminiKey || process.env.GEMINI_API_KEY || '';
-    const claudeKey = userClaudeKey || process.env.CLAUDE_API_KEY || '';
+    // Phase 2: use shared resolveServerKeys — single source of truth for key resolution
+    const { geminiKey, claudeKey } = resolveServerKeys(userGeminiKey, userClaudeKey);
 
     if (!prompt) {
       return NextResponse.json({ error: 'No prompt provided' }, { status: 400 });

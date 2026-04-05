@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { resolveServerKeys } from '@/lib/resolveAIKey';
 
 function buildPrompt(
   smsText: string,
@@ -112,10 +113,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const { smsText, categories = [], accounts = [], recentTransactions = [], geminiKey: userGeminiKey, claudeKey: userClaudeKey } = await request.json();
-    const geminiKey = userGeminiKey || process.env.GEMINI_API_KEY || '';
-    const claudeKey = userClaudeKey || process.env.CLAUDE_API_KEY || '';
+    // Phase 2: use shared resolveServerKeys — single source of truth for key resolution
+    const { geminiKey, claudeKey, hasAnyKey } = resolveServerKeys(userGeminiKey, userClaudeKey);
 
-    if (!geminiKey && !claudeKey) {
+    if (!hasAnyKey) {
       return NextResponse.json(
         { success: false, provider: null, suggestion: null, error: 'AI parsing not configured.' },
         { status: 503 }

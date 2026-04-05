@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { resolveServerKeys } from '@/lib/resolveAIKey';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -66,8 +67,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const { messages, systemPrompt, geminiKey: userGeminiKey, claudeKey: userClaudeKey } = await request.json();
-    const geminiKey = userGeminiKey || process.env.GEMINI_API_KEY || '';
-    const claudeKey = userClaudeKey || process.env.CLAUDE_API_KEY || '';
+    // Phase 2: use shared resolveServerKeys — single source of truth for key resolution
+    const { geminiKey, claudeKey } = resolveServerKeys(userGeminiKey, userClaudeKey);
 
     if (!messages?.length) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });

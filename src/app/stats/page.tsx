@@ -7,6 +7,13 @@ import { SubCategoryTrend } from '@/components/stats/SubCategoryTrend'
 import { IncomeVsExpense } from '@/components/stats/IncomeVsExpense'
 import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
 import { NetWorth } from '@/components/stats/NetWorth'
+// Phase 2 deep insight components
+import { LifestyleInflationCurve } from '@/components/stats/LifestyleInflationCurve'
+import { SeasonalHeatmap } from '@/components/stats/SeasonalHeatmap'
+import { CorrelationWeb } from '@/components/stats/CorrelationWeb'
+import { FinancialIdentityCard } from '@/components/stats/FinancialIdentityCard'
+import { FinancialAgeScore } from '@/components/stats/FinancialAgeScore'
+import { UncomfortableTruth } from '@/components/stats/UncomfortableTruth'
 import { BarChart3, Calendar } from 'lucide-react'
 import { useState } from 'react'
 
@@ -193,6 +200,33 @@ export default function StatsPage() {
 
         {/* Account Balance History - Full Width */}
         <AccountBalanceHistory dateRange={dateRange} />
+
+        {/* ── Phase 2: Deep Financial Insight Visuals ─────────────────── */}
+        <div className="pt-4 border-t border-slate-700">
+          <h2 className="text-xs text-slate-500 uppercase tracking-widest mb-6">
+            Deep Insights — Based on All Available Data
+          </h2>
+
+          <div className="space-y-8">
+            {/* Feature 15 — Lifestyle Inflation Curve */}
+            <LifestyleInflationCurve />
+
+            {/* Feature 16 — Seasonal Heatmap */}
+            <SeasonalHeatmap />
+
+            {/* Feature 17 — Correlation Web / Spending DNA */}
+            <CorrelationWeb />
+
+            {/* Feature 18 & 19 — Identity Card + Age Score side by side on large screens */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <FinancialIdentityCard />
+              <FinancialAgeScore />
+            </div>
+
+            {/* Feature 20 — The Uncomfortable Truth */}
+            <UncomfortableTruth />
+          </div>
+        </div>
       </div>
     </div>
   )

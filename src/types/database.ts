@@ -133,3 +133,20 @@ export interface AppSetting {
   key: string;
   value: string;
 }
+
+// ─── Phase 2 additions ────────────────────────────────────────────────────────
+
+export interface ComputedInsight {
+  id?: number;
+  key: string;           // e.g., 'lifestyle_inflation', 'seasonal_heatmap', 'correlation_web'
+  value: string;         // JSON stringified result
+  computedAt: string;    // ISO timestamp
+  version: number;       // increment if computation logic changes, triggers recompute
+}
+
+export interface CategoryBucket {
+  id?: number;
+  categoryId: number;
+  categoryName: string;
+  bucketName: 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST';
+}
