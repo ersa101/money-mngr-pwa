@@ -1,308 +1,230 @@
 'use client'
 
-import { useMemo, useRef, useCallback } from 'react'
+import { useMemo, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useDb } from '@/contexts/DbContext'
-import { CreditCard, Share2 } from 'lucide-react'
-import type { CategoryBucket } from '@/types/database'
+import { db } from '@/lib/db'
+import { Camera } from 'lucide-react'
 
-// ── Bucket config ─────────────────────────────────────────────────────────────
 type BucketKey = 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST'
 
-const BUCKET_LABELS: Record<BucketKey, string> = {
-  LIFE_ESSENTIALS: 'Life essentials',
-  PEOPLE_SOCIAL: 'People & social',
-  TRANSPORT: 'Transport',
-  YOURSELF: 'Yourself',
-  SAVINGS_INVEST: 'Savings & invest',
+const BUCKET_META: Record<BucketKey, { label: string; emoji: string; color: string }> = {
+  LIFE_ESSENTIALS: { label: 'Life essentials', emoji: '🏠', color: '#10b981' },
+  PEOPLE_SOCIAL:   { label: 'People & social', emoji: '👥', color: '#6366f1' },
+  TRANSPORT:       { label: 'Transport',        emoji: '🚗', color: '#f59e0b' },
+  YOURSELF:        { label: 'Yourself',         emoji: '🧘', color: '#8b5cf6' },
+  SAVINGS_INVEST:  { label: 'Savings & invest', emoji: '💾', color: '#06b6d4' },
 }
 
-const BUCKET_ICONS: Record<BucketKey, string> = {
-  LIFE_ESSENTIALS: '🏠',
-  PEOPLE_SOCIAL: '👥',
-  TRANSPORT: '🚗',
-  YOURSELF: '🧘',
-  SAVINGS_INVEST: '💾',
+const BUCKET_KEYWORDS: Record<BucketKey, string[]> = {
+  LIFE_ESSENTIALS: ['rent', 'groceries', 'grocery', 'utilities', 'bills', 'bill', 'food', 'electricity', 'water', 'gas', 'mobile', 'internet'],
+  PEOPLE_SOCIAL:   ['friends', 'family', 'meetup', 'gifts', 'gift', 'eating out', 'restaurant', 'party', 'social', 'dining'],
+  TRANSPORT:       ['auto', 'bike', 'metro', 'train', 'bus', 'flight', 'cab', 'uber', 'ola', 'petrol', 'fuel', 'transport', 'travel'],
+  YOURSELF:        ['clothing', 'clothes', 'health', 'grooming', 'entertainment', 'calm', 'gym', 'fitness', 'shopping', 'personal'],
+  SAVINGS_INVEST:  ['investment', 'invest', 'stock', 'stocks', 'mf', 'mutual fund', 'insurance', 'sip', 'fd', 'ppf', 'nps'],
 }
 
-const DEFAULT_BUCKET_KEYWORDS: Record<BucketKey, string[]> = {
-  LIFE_ESSENTIALS: ['rent', 'groceries', 'utilities', 'bills', 'food', 'electricity', 'water', 'gas'],
-  PEOPLE_SOCIAL: ['friends', 'family', 'meetup', 'gift', 'eating out', 'dining', 'social', 'party'],
-  TRANSPORT: ['auto', 'bike', 'metro', 'train', 'bus', 'flight', 'cab', 'petrol', 'fuel', 'commute'],
-  YOURSELF: ['clothing', 'health', 'grooming', 'entertainment', 'calm', 'fitness', 'gym', 'beauty'],
-  SAVINGS_INVEST: ['investment', 'stock', 'mf', 'mutual fund', 'insurance', 'savings', 'sip', 'epf'],
-}
-
-function guessBucket(catName: string, overrides: CategoryBucket[]): BucketKey {
-  const override = overrides.find(
-    (o) => o.categoryName.toLowerCase() === catName.toLowerCase()
-  )
-  if (override) return override.bucketName
-
-  const lower = catName.toLowerCase()
-  for (const [bucket, keywords] of Object.entries(DEFAULT_BUCKET_KEYWORDS) as [BucketKey, string[]][]) {
+function assignBucket(name: string): BucketKey | null {
+  const lower = name.toLowerCase()
+  for (const [bucket, keywords] of Object.entries(BUCKET_KEYWORDS) as [BucketKey, string[]][]) {
     if (keywords.some((kw) => lower.includes(kw))) return bucket
   }
-  return 'YOURSELF'
+  return null
 }
 
-// ── Canvas-based share image (no html2canvas dependency) ──────────────────────
-function generateShareCanvas(
-  year: string,
-  buckets: { key: BucketKey; pct: number }[],
-  savingsRate: number,
-  prevSavingsRate: number | null
-): HTMLCanvasElement {
-  const W = 600, H = 400
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')!
+function formatINR(v: number) {
+  if (v >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`
+  if (v >= 100000) return `₹${(v / 100000).toFixed(1)}L`
+  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`
+  return `₹${v.toFixed(0)}`
+}
 
-  // Background
-  ctx.fillStyle = '#0f172a'
-  ctx.fillRect(0, 0, W, H)
-
-  // Border gradient
-  ctx.strokeStyle = '#334155'
-  ctx.lineWidth = 2
-  ctx.strokeRect(1, 1, W - 2, H - 2)
-
-  // Title
-  ctx.fillStyle = '#94a3b8'
-  ctx.font = 'bold 13px monospace'
-  ctx.fillText(`YOUR FINANCIAL IDENTITY — ${year}`, 40, 52)
-
-  // Divider
-  ctx.strokeStyle = '#334155'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(40, 70)
-  ctx.lineTo(W - 40, 70)
-  ctx.stroke()
-
-  // Subtitle
-  ctx.fillStyle = '#64748b'
-  ctx.font = '12px sans-serif'
-  ctx.fillText('Where your money went:', 40, 96)
-
-  // Buckets (percentages only — no amounts for privacy)
-  let y = 118
-  for (const { key, pct } of buckets) {
-    ctx.fillStyle = '#f1f5f9'
-    ctx.font = '14px sans-serif'
-    ctx.fillText(`${BUCKET_ICONS[key]}  ${BUCKET_LABELS[key]}`, 40, y)
-    ctx.fillStyle = '#6366f1'
-    ctx.font = 'bold 14px sans-serif'
-    ctx.fillText(`${pct.toFixed(1)}%`, W - 80, y)
-    y += 26
+function getYearRange(): { start: string; end: string; year: number } {
+  const now = new Date()
+  const year = now.getFullYear()
+  // Use last 12 months if current year < 6 months complete
+  if (now.getMonth() < 6) {
+    return {
+      start: `${year - 1}-01-01`,
+      end: `${year - 1}-12-31`,
+      year: year - 1,
+    }
   }
-
-  // Divider
-  y += 4
-  ctx.strokeStyle = '#334155'
-  ctx.beginPath()
-  ctx.moveTo(40, y)
-  ctx.lineTo(W - 40, y)
-  ctx.stroke()
-  y += 20
-
-  // Savings line
-  ctx.fillStyle = '#94a3b8'
-  ctx.font = '13px sans-serif'
-  ctx.fillText(`You saved ${savingsRate.toFixed(1)}% of income`, 40, y)
-  if (prevSavingsRate !== null) {
-    y += 20
-    const improving = savingsRate >= prevSavingsRate
-    ctx.fillStyle = improving ? '#22c55e' : '#ef4444'
-    ctx.fillText(`${improving ? '↑ Improving' : '↓ Declining'} vs last year (${prevSavingsRate.toFixed(1)}%)`, 40, y)
+  return {
+    start: `${year}-01-01`,
+    end: `${year}-12-31`,
+    year,
   }
-
-  // Footer
-  ctx.fillStyle = '#334155'
-  ctx.font = '11px sans-serif'
-  ctx.fillText('Money Mngr — Financial Identity', 40, H - 24)
-
-  return canvas
 }
 
 export function FinancialIdentityCard() {
-  const db = useDb()
   const cardRef = useRef<HTMLDivElement>(null)
+  const { start, end, year } = useMemo(getYearRange, [])
 
-  const transactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
-  const bucketOverrides = useLiveQuery(() => db?.categoryBuckets?.toArray() ?? [], [db])
+  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const categories = useLiveQuery(() => db.categories.toArray(), [])
 
   const data = useMemo(() => {
-    if (!transactions?.length || !categories) return null
+    if (!transactions || !categories) return null
 
     const catMap = new Map(categories.map((c) => [c.id!, c.name]))
-    const overrides: CategoryBucket[] = bucketOverrides ?? []
 
-    const now = new Date()
-    const curYear = now.getFullYear()
-    const prevYear = curYear - 1
-
-    // Use current year if ≥ 6 months of data, else last 12 months
-    const curYearTxns = transactions.filter(
-      (t) => t.transactionType === 'EXPENSE' && t.date.startsWith(String(curYear))
+    const yearTxns = transactions.filter(
+      (t) => t.date >= start && t.date <= end
     )
-    const useCurrentYear = new Set(curYearTxns.map((t) => t.date.slice(0, 7))).size >= 6
-
-    const startDate = useCurrentYear
-      ? `${curYear}-01-01`
-      : new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10)
-    const endDate = now.toISOString().slice(0, 10)
-    const year = useCurrentYear ? String(curYear) : `${prevYear}–${curYear}`
-
-    const periodExpense = transactions.filter(
-      (t) => t.transactionType === 'EXPENSE' && t.date >= startDate && t.date <= endDate
-    )
-    const periodIncome = transactions.filter(
-      (t) => t.transactionType === 'INCOME' && t.date >= startDate && t.date <= endDate
+    const prevYearTxns = transactions.filter(
+      (t) => t.date >= `${year - 1}-01-01` && t.date <= `${year - 1}-12-31`
     )
 
-    const totalExpense = periodExpense.reduce((s, t) => s + t.amount, 0)
-    const totalIncome = periodIncome.reduce((s, t) => s + t.amount, 0)
-    const days = Math.max(1, (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000)
+    const totalExpense = yearTxns
+      .filter((t) => t.transactionType === 'EXPENSE')
+      .reduce((s, t) => s + t.amount, 0)
+
+    const totalIncome = yearTxns
+      .filter((t) => t.transactionType === 'INCOME')
+      .reduce((s, t) => s + t.amount, 0)
+
+    const prevIncome = prevYearTxns
+      .filter((t) => t.transactionType === 'INCOME')
+      .reduce((s, t) => s + t.amount, 0)
+    const prevExpense = prevYearTxns
+      .filter((t) => t.transactionType === 'EXPENSE')
+      .reduce((s, t) => s + t.amount, 0)
+
+    const savingsRate = totalIncome > 0
+      ? ((totalIncome - totalExpense) / totalIncome) * 100
+      : 0
+    const prevSavingsRate = prevIncome > 0
+      ? ((prevIncome - prevExpense) / prevIncome) * 100
+      : 0
+
+    const days = Math.max(
+      1,
+      Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000)
+    )
     const perDay = totalExpense / days
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0
 
     // Bucket breakdown
-    const bucketTotals = new Map<BucketKey, number>()
-    for (const t of periodExpense) {
-      const catName = catMap.get(t.categoryId!) ?? 'Other'
-      const bucket = guessBucket(catName, overrides)
-      bucketTotals.set(bucket, (bucketTotals.get(bucket) ?? 0) + t.amount)
+    const bucketTotals: Record<BucketKey, number> = {
+      LIFE_ESSENTIALS: 0, PEOPLE_SOCIAL: 0, TRANSPORT: 0, YOURSELF: 0, SAVINGS_INVEST: 0,
+    }
+    let bucketed = 0
+
+    for (const t of yearTxns) {
+      if (t.transactionType !== 'EXPENSE') continue
+      const catName = t.categoryId ? catMap.get(t.categoryId) ?? '' : ''
+      const bucket = assignBucket(catName)
+      if (bucket) {
+        bucketTotals[bucket] += t.amount
+        bucketed += t.amount
+      }
     }
 
-    const buckets: { key: BucketKey; amount: number; pct: number }[] = (
-      Object.keys(BUCKET_LABELS) as BucketKey[]
-    ).map((key) => {
-      const amount = bucketTotals.get(key) ?? 0
-      return { key, amount, pct: totalExpense > 0 ? (amount / totalExpense) * 100 : 0 }
-    }).sort((a, b) => b.pct - a.pct)
+    const buckets = (Object.keys(BUCKET_META) as BucketKey[]).map((key) => ({
+      key,
+      ...BUCKET_META[key],
+      amount: bucketTotals[key],
+      pct: bucketed > 0 ? Math.round((bucketTotals[key] / bucketed) * 100) : 0,
+    })).filter((b) => b.amount > 0)
 
-    // Previous year savings rate
-    const prevExpense = transactions
-      .filter((t) => t.transactionType === 'EXPENSE' && t.date.startsWith(String(prevYear)))
-      .reduce((s, t) => s + t.amount, 0)
-    const prevIncome = transactions
-      .filter((t) => t.transactionType === 'INCOME' && t.date.startsWith(String(prevYear)))
-      .reduce((s, t) => s + t.amount, 0)
-    const prevSavingsRate = prevIncome > 0 ? ((prevIncome - prevExpense) / prevIncome) * 100 : null
+    return { totalExpense, totalIncome, perDay, savingsRate, prevSavingsRate, buckets, year }
+  }, [transactions, categories, start, end, year])
 
-    return { year, totalExpense, totalIncome, perDay, savingsRate, prevSavingsRate, buckets }
-  }, [transactions, categories, bucketOverrides])
-
-  const handleShare = useCallback(() => {
-    if (!data) return
-    const canvas = generateShareCanvas(
-      data.year,
-      data.buckets.map(({ key, pct }) => ({ key, pct })),
-      data.savingsRate,
-      data.prevSavingsRate
-    )
-    canvas.toBlob((blob) => {
-      if (!blob) return
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `financial-identity-${data.year}.png`
-      a.click()
-      URL.revokeObjectURL(url)
-    })
-  }, [data])
+  const handleShare = async () => {
+    if (!cardRef.current) return
+    try {
+      // Dynamically import html2canvas only when needed
+      const { default: html2canvas } = await import('html2canvas')
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#0f172a',
+        scale: 2,
+      })
+      const link = document.createElement('a')
+      link.download = `financial-identity-${data?.year ?? ''}.png`
+      link.href = canvas.toDataURL()
+      link.click()
+    } catch {
+      console.error('html2canvas not available — install it with: npm install html2canvas')
+    }
+  }
 
   if (!data) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <CreditCard className="w-5 h-5 text-blue-400" />
-          <h2 className="text-base md:text-lg font-semibold text-white">Financial Identity Card</h2>
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+        <div className="flex items-center justify-center h-48 text-slate-500 text-sm">
+          Loading financial identity…
         </div>
-        <p className="text-slate-500 text-sm">Loading…</p>
       </div>
     )
   }
 
-  const fmt = (n: number) => {
-    if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`
-    if (n >= 1000) return `₹${(n / 1000).toFixed(1)}K`
-    return `₹${n.toFixed(0)}`
-  }
+  const savingsTrend = data.savingsRate >= data.prevSavingsRate
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-6">
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
       <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-blue-400" />
-          <h2 className="text-base md:text-lg font-semibold text-white">Financial Identity Card</h2>
+        <div>
+          <h3 className="text-base font-semibold text-white">Financial Identity</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Based on all available data</p>
         </div>
         <button
           onClick={handleShare}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-600 hover:border-blue-500 text-slate-400 hover:text-blue-400 rounded-lg transition"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition"
         >
-          <Share2 className="w-3 h-3" />
-          📸 Share
+          <Camera className="w-3.5 h-3.5" />
+          Share
         </button>
       </div>
 
-      <div ref={cardRef} className="border border-slate-700 rounded-xl bg-slate-900 p-5 font-mono">
-        {/* Header */}
-        <p className="text-slate-400 text-xs mb-4 tracking-widest">YOUR FINANCIAL IDENTITY — {data.year}</p>
+      {/* Card (shareable area — no amounts shown in share, only percentages visible) */}
+      <div
+        ref={cardRef}
+        className="bg-slate-900 rounded-xl border border-slate-700 p-5"
+      >
+        <p className="text-xs text-slate-500 uppercase tracking-widest mb-3">
+          YOUR FINANCIAL IDENTITY — {data.year}
+        </p>
 
-        {/* Spend summary */}
-        <div className="mb-4 space-y-1">
-          <p className="text-white text-sm">
-            You spent <span className="text-blue-400 font-bold">{fmt(data.totalExpense)}</span> this year
+        <div className="mb-4">
+          <p className="text-sm text-slate-300">
+            You spent <span className="text-white font-semibold">{formatINR(data.totalExpense)}</span> this year
           </p>
-          <p className="text-slate-400 text-xs">
-            That&apos;s <span className="text-slate-200">{fmt(data.perDay)}</span> per day
+          <p className="text-sm text-slate-300 mt-0.5">
+            That's <span className="text-white font-semibold">{formatINR(data.perDay)}</span> per day
           </p>
         </div>
 
-        {/* Bucket breakdown */}
-        <p className="text-slate-500 text-xs mb-2">Where your money went:</p>
+        <p className="text-xs text-slate-500 uppercase tracking-wide mb-2">Where your money went</p>
         <div className="space-y-2 mb-4">
-          {data.buckets.map(({ key, pct, amount }) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className="text-base">{BUCKET_ICONS[key]}</span>
-              <span className="text-slate-300 text-xs flex-1">{BUCKET_LABELS[key]}</span>
+          {data.buckets.map((b) => (
+            <div key={b.key} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-20 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <span>{b.emoji}</span>
+                <span className="text-sm text-slate-300">{b.label}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-24 h-1.5 rounded-full bg-slate-700 overflow-hidden">
                   <div
-                    className="h-full bg-blue-500 rounded-full"
-                    style={{ width: `${Math.min(100, pct)}%` }}
+                    className="h-full rounded-full"
+                    style={{ width: `${b.pct}%`, background: b.color }}
                   />
                 </div>
-                <span className="text-blue-400 text-xs w-10 text-right">{pct.toFixed(1)}%</span>
-                <span className="text-slate-500 text-xs w-14 text-right">{fmt(amount)}</span>
+                <span className="text-sm font-semibold text-white w-8 text-right">{b.pct}%</span>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Savings */}
-        <div className="border-t border-slate-700 pt-3 space-y-1">
-          <p className="text-sm text-white">
+        <div className="border-t border-slate-700 pt-3">
+          <p className="text-sm text-slate-300">
             You saved{' '}
-            <span className={data.savingsRate >= 10 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
-              {data.savingsRate.toFixed(1)}%
-            </span>{' '}
-            of income
+            <span className="font-semibold text-white">{data.savingsRate.toFixed(1)}%</span> of income
           </p>
-          {data.prevSavingsRate !== null && (
-            <p className="text-xs text-slate-400">
-              Last year you saved{' '}
-              <span className="text-slate-200">{data.prevSavingsRate.toFixed(1)}%</span>
-              {'  '}
-              <span className={data.savingsRate >= data.prevSavingsRate ? 'text-emerald-400' : 'text-red-400'}>
-                {data.savingsRate >= data.prevSavingsRate ? '↑ Improving' : '↓ Declining'}
-              </span>
-            </p>
-          )}
+          <p className="text-sm text-slate-400 mt-0.5">
+            Last year: {data.prevSavingsRate.toFixed(1)}%
+          </p>
+          <p className={`text-sm font-medium mt-1 ${savingsTrend ? 'text-emerald-400' : 'text-red-400'}`}>
+            {savingsTrend ? '↑ Improving' : '↓ Declining'}
+          </p>
         </div>
       </div>
     </div>

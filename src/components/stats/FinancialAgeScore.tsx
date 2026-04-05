@@ -1,218 +1,183 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useDb } from '@/contexts/DbContext'
-import { Calendar, ChevronDown, ChevronUp } from 'lucide-react'
-import { computeFinancialAge } from '@/lib/financialAgeUtils'
+import { db } from '@/lib/db'
+import { computeFinancialAge, type FinancialAgeFactor } from '@/lib/financialAgeUtils'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-function cagr(values: number[]): number {
-  const nonZero = values.filter((v) => v > 0)
-  if (nonZero.length < 2) return 0
-  const n = nonZero.length - 1
-  return (Math.pow(nonZero[n] / nonZero[0], 12 / n) - 1) * 100
+function stddev(values: number[]): number {
+  if (values.length < 2) return 0
+  const mean = values.reduce((s, v) => s + v, 0) / values.length
+  return Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length)
 }
 
-function coefficientOfVariation(values: number[]): number {
-  const nonZero = values.filter((v) => v !== 0)
-  if (nonZero.length < 2) return 100
-  const mean = nonZero.reduce((a, b) => a + b, 0) / nonZero.length
-  if (mean === 0) return 100
-  const variance = nonZero.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / nonZero.length
-  return (Math.sqrt(variance) / Math.abs(mean)) * 100
+function annualGrowthRate(values: number[]): number {
+  const valid = values.filter((v) => v > 0)
+  if (valid.length < 2) return 0
+  const years = valid.length / 12
+  return years > 0 ? (Math.pow(valid[valid.length - 1] / valid[0], 1 / years) - 1) * 100 : 0
 }
 
 export function FinancialAgeScore() {
-  const db = useDb()
-  const [realAge, setRealAge] = useState<number | ''>('')
-  const [ageInput, setAgeInput] = useState('')
-  const [showBreakdown, setShowBreakdown] = useState(false)
-  const [ageSaved, setAgeSaved] = useState(false)
+  const [showFactors, setShowFactors] = useState(false)
 
-  // Load saved age
-  useEffect(() => {
-    if (!db) return
-    db.appSettings.get('user_real_age').then((s) => {
-      if (s?.value) {
-        const n = Number(s.value)
-        setRealAge(n)
-        setAgeInput(String(n))
-      }
-    })
-  }, [db])
-
-  const saveAge = async () => {
-    if (!db || !ageInput) return
-    const n = Number(ageInput)
-    if (isNaN(n) || n < 1 || n > 120) return
-    await db.appSettings.put({ key: 'user_real_age', value: String(n) })
-    setRealAge(n)
-    setAgeSaved(true)
-    setTimeout(() => setAgeSaved(false), 1500)
-  }
-
-  const transactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
-  const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
+  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const accounts = useLiveQuery(() => db.accounts.toArray(), [])
+  const realAgeSetting = useLiveQuery(() => db.appSettings.get('user_real_age'), [])
 
   const result = useMemo(() => {
-    if (!realAge || !transactions?.length || !accounts) return null
+    if (!transactions || !accounts) return null
 
-    const now = new Date()
-    const last12Start = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10)
-    const recent = transactions.filter((t) => t.date >= last12Start)
+    const realAge = realAgeSetting ? parseInt(realAgeSetting.value, 10) : 28
+    if (isNaN(realAge)) return null
 
-    const monthMap = new Map<string, { inc: number; exp: number }>()
-    for (const t of recent) {
-      const m = t.date.slice(0, 7)
-      if (!monthMap.has(m)) monthMap.set(m, { inc: 0, exp: 0 })
-      const e = monthMap.get(m)!
-      if (t.transactionType === 'INCOME') e.inc += t.amount
-      else if (t.transactionType === 'EXPENSE') e.exp += t.amount
+    // Build monthly income/expense
+    const monthlyIncome = new Map<string, number>()
+    const monthlyExpense = new Map<string, number>()
+    const monthlySavings = new Map<string, number>()
+
+    for (const t of transactions) {
+      const month = t.date.slice(0, 7)
+      if (t.transactionType === 'INCOME') {
+        monthlyIncome.set(month, (monthlyIncome.get(month) ?? 0) + t.amount)
+      } else if (t.transactionType === 'EXPENSE') {
+        monthlyExpense.set(month, (monthlyExpense.get(month) ?? 0) + t.amount)
+      }
     }
-    const months = Array.from(monthMap.keys()).sort()
-    const incomes = months.map((m) => monthMap.get(m)!.inc)
-    const expenses = months.map((m) => monthMap.get(m)!.exp)
-    const savings = months.map((m, i) => incomes[i] - expenses[i])
 
-    const totalInc = incomes.reduce((a, b) => a + b, 0)
-    const totalExp = expenses.reduce((a, b) => a + b, 0)
-    const savingsRate = totalInc > 0 ? ((totalInc - totalExp) / totalInc) * 100 : 0
-
-    // Investment spend — detect by description keywords
-    const investmentKeywords = ['investment', 'stock', 'mf', 'mutual fund', 'insurance', 'sip', 'epf']
-    const investmentTxns = recent.filter((t) => {
-      if (t.transactionType !== 'EXPENSE') return false
-      const desc = (t.description ?? t.notes ?? '').toLowerCase()
-      return investmentKeywords.some((kw) => desc.includes(kw))
+    const months = Array.from(new Set([...monthlyIncome.keys(), ...monthlyExpense.keys()])).sort()
+    months.forEach((m) => {
+      const inc = monthlyIncome.get(m) ?? 0
+      const exp = monthlyExpense.get(m) ?? 0
+      monthlySavings.set(m, inc - exp)
     })
-    const investmentTotal = investmentTxns.reduce((s, t) => s + t.amount, 0)
-    const investmentRatio = totalInc > 0 ? (investmentTotal / totalInc) * 100 : 0
 
-    // Debt accounts (CREDIT_CARD or PERSON with positive balance)
-    const debtAccounts = (accounts ?? []).filter(
-      (a) => (a.type === 'CREDIT_CARD' || a.type === 'PERSON') && a.balance > 0
+    const incomeVals = months.map((m) => monthlyIncome.get(m) ?? 0)
+    const expenseVals = months.map((m) => monthlyExpense.get(m) ?? 0)
+    const savingsVals = months.map((m) => monthlySavings.get(m) ?? 0)
+
+    const totalIncome = incomeVals.reduce((s, v) => s + v, 0)
+    const totalExpense = expenseVals.reduce((s, v) => s + v, 0)
+    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0
+
+    const incomeGrowthRate = annualGrowthRate(incomeVals)
+    const expenseGrowthRate = annualGrowthRate(expenseVals)
+
+    // Investment ratio: transactions to accounts of type INVESTMENT
+    const investmentAccountIds = new Set(
+      accounts.filter((a) => a.type === 'INVESTMENT').map((a) => a.id!)
     )
+    const investmentTotal = transactions
+      .filter((t) => t.transactionType === 'TRANSFER' && investmentAccountIds.has(t.toAccountId ?? -1))
+      .reduce((s, t) => s + t.amount, 0)
+    const investmentRatio = totalIncome > 0 ? (investmentTotal / totalIncome) * 100 : 0
 
-    // Safe to spend in months
-    const avgMonthlyExp = expenses.length > 0 ? totalExp / expenses.length : 1
-    const safeAccounts = (accounts ?? []).filter(
-      (a) => a.type === 'BANK' || a.type === 'CASH' || a.type === 'WALLET'
-    )
-    const safeBalance = safeAccounts.reduce((s, a) => s + a.balance, 0)
-    const safeMonths = avgMonthlyExp > 0 ? safeBalance / avgMonthlyExp : 0
+    // Debt accounts
+    const debtAccountCount = accounts.filter((a) => a.isLiability && a.balance > 0).length
 
-    const savingsVariance = coefficientOfVariation(savings)
-    const expGrowth = cagr(expenses)
-    const incGrowth = cagr(incomes)
+    // Safe-to-spend in months: use account threshold logic
+    const avgMonthlyExpense = expenseVals.length > 0
+      ? expenseVals.reduce((s, v) => s + v, 0) / expenseVals.length
+      : 1
+    const totalSafeBalance = accounts
+      .filter((a) => !a.isLiability && a.includeInNetWorth !== false)
+      .reduce((s, a) => s + Math.max(0, a.balance - a.thresholdValue), 0)
+    const safeToSpendMonths = avgMonthlyExpense > 0 ? totalSafeBalance / avgMonthlyExpense : 0
+
+    // Savings consistency (coefficient of variation)
+    const savingsMean = savingsVals.reduce((s, v) => s + v, 0) / (savingsVals.length || 1)
+    const savingsStd = stddev(savingsVals)
+    const monthlySavingsVarianceCoeff = savingsMean !== 0 ? Math.abs(savingsStd / savingsMean) : 1
 
     return computeFinancialAge({
-      realAge: Number(realAge),
-      savingsRatePct: savingsRate,
-      expenseGrowthPct: expGrowth,
-      incomeGrowthPct: incGrowth,
-      investmentRatioPct: investmentRatio,
-      debtAccountCount: debtAccounts.length,
-      safeToSpendMonths: safeMonths,
-      savingsVariancePct: savingsVariance,
+      realAge,
+      savingsRate,
+      expenseGrowthRate,
+      incomeGrowthRate,
+      investmentRatio,
+      debtAccountCount,
+      safeToSpendMonths,
+      monthlySavingsVarianceCoeff,
     })
-  }, [realAge, transactions, accounts])
+  }, [transactions, accounts, realAgeSetting])
+
+  if (!result) {
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+        <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
+          Loading…
+        </div>
+      </div>
+    )
+  }
+
+  const younger = result.delta < 0
+  const same = result.delta === 0
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Calendar className="w-5 h-5 text-pink-400" />
-        <h2 className="text-base md:text-lg font-semibold text-white">Financial Age Score</h2>
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <div className="mb-4">
+        <h3 className="text-base font-semibold text-white">Financial Age Score</h3>
+        <p className="text-xs text-slate-400 mt-0.5">Based on all available data</p>
       </div>
-      <p className="text-xs text-slate-400 mb-4">
-        Your &quot;financial age&quot; based on savings rate, investment habits, and spending behaviour.
-      </p>
 
-      {/* Age input */}
-      {!realAge && (
-        <div className="flex items-center gap-2 mb-4">
-          <input
-            type="number"
-            value={ageInput}
-            onChange={(e) => setAgeInput(e.target.value)}
-            placeholder="Enter your real age"
-            className="w-40 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:border-pink-500"
-          />
-          <button
-            onClick={saveAge}
-            className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white text-sm rounded-lg transition"
-          >
-            {ageSaved ? '✓ Saved' : 'Set Age'}
-          </button>
+      <div className="flex items-center gap-8 mb-5">
+        <div className="text-center">
+          <div className="text-5xl font-bold text-white">{result.financialAge}</div>
+          <div className="text-xs text-slate-400 mt-1">Financial Age</div>
         </div>
-      )}
-
-      {realAge && (
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-xs text-slate-500">Real age: {realAge}</span>
-          <button
-            onClick={() => setRealAge('')}
-            className="text-xs text-slate-600 hover:text-slate-400 underline"
-          >
-            Change
-          </button>
+        <div className="text-center">
+          <div className="text-3xl font-semibold text-slate-400">{result.realAge}</div>
+          <div className="text-xs text-slate-500 mt-1">Real Age</div>
         </div>
-      )}
-
-      {result && (
-        <>
-          {/* Main score display */}
-          <div className="flex flex-wrap items-center gap-6 mb-4">
-            <div className="text-center">
-              <p className="text-slate-400 text-xs mb-1">Financial Age</p>
-              <p className={`text-5xl font-bold ${result.delta <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {result.financialAge}
-              </p>
-            </div>
-            <div className="text-center">
-              <p className="text-slate-400 text-xs mb-1">Real Age</p>
-              <p className="text-5xl font-bold text-slate-400">{result.realAge}</p>
-            </div>
-            <div className="flex-1 min-w-[160px]">
-              <p className={`text-sm font-medium ${result.delta <= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {result.delta === 0
-                  ? 'Right on track 🟡'
-                  : result.delta < 0
-                  ? `You think ${Math.abs(result.delta)} years younger than you are 🟢`
-                  : `You think ${result.delta} years older than you are 🔴`}
-              </p>
-            </div>
-          </div>
-
-          {/* Breakdown toggle */}
-          <button
-            onClick={() => setShowBreakdown(!showBreakdown)}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition mb-2"
-          >
-            {showBreakdown ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            {showBreakdown ? 'Hide' : 'Show'} factor breakdown
-          </button>
-
-          {showBreakdown && (
-            <div className="space-y-1.5 mt-2">
-              {result.adjustments.map((adj, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <span className={`w-16 text-right font-mono ${adj.delta < 0 ? 'text-emerald-400' : adj.delta > 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                    {adj.delta > 0 ? `+${adj.delta}` : adj.delta} yrs
-                  </span>
-                  <span className="text-slate-400">{adj.factor}</span>
-                  <span className="text-slate-600 italic">— {adj.condition}</span>
-                </div>
-              ))}
-            </div>
+        <div className="flex-1">
+          {same ? (
+            <p className="text-sm text-slate-300">Your financial age matches your real age.</p>
+          ) : younger ? (
+            <p className="text-sm">
+              <span className="text-emerald-400 font-semibold">
+                You think {Math.abs(result.delta)} years younger 🟢
+              </span>
+              <br />
+              <span className="text-slate-400 text-xs">Your habits outpace your age</span>
+            </p>
+          ) : (
+            <p className="text-sm">
+              <span className="text-red-400 font-semibold">
+                You think {result.delta} years older 🔴
+              </span>
+              <br />
+              <span className="text-slate-400 text-xs">Your habits are ageing your finances</span>
+            </p>
           )}
-        </>
-      )}
+        </div>
+      </div>
 
-      {!realAge && (
-        <p className="text-slate-500 text-sm py-4">
-          Enter your real age above to compute your Financial Age Score.
-        </p>
+      <button
+        onClick={() => setShowFactors(!showFactors)}
+        className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition"
+      >
+        {showFactors ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {showFactors ? 'Hide' : 'Show'} factor breakdown
+      </button>
+
+      {showFactors && (
+        <div className="mt-3 space-y-1.5">
+          {result.factors.map((f: FinancialAgeFactor, i: number) => (
+            <div key={i} className="flex items-start justify-between gap-3 text-xs">
+              <span className="text-slate-400 flex-1">{f.label}</span>
+              <span className="text-slate-500 flex-1">{f.detail}</span>
+              <span
+                className={`font-semibold w-12 text-right ${
+                  f.adjustment < 0 ? 'text-emerald-400' : f.adjustment > 0 ? 'text-red-400' : 'text-slate-400'
+                }`}
+              >
+                {f.adjustment > 0 ? `+${f.adjustment}` : f.adjustment} yr
+              </span>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

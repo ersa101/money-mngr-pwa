@@ -1,246 +1,274 @@
 'use client'
 
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useDb } from '@/contexts/DbContext'
-import { Play, RefreshCw, Share2 } from 'lucide-react'
-import { buildMonthlySubCategorySpend, computeCorrelationWeb } from '@/lib/correlationUtils'
-import type { CorrelationWebData } from '@/lib/correlationUtils'
+import { db } from '@/lib/db'
+import { computeCorrelations, type CorrelationNode, type CorrelationEdge } from '@/lib/correlationUtils'
+import { Play, RefreshCw } from 'lucide-react'
 
 const CACHE_KEY = 'correlation_web'
 const CACHE_VERSION = 1
 const CACHE_TTL_DAYS = 7
-
-const CORRELATION_THRESHOLD = 0.4
-const NODE_RADIUS_BASE = 14
-const NODE_RADIUS_MAX = 40
-const SVG_W = 560
-const SVG_H = 380
-const CX = SVG_W / 2
-const CY = SVG_H / 2
+const MIN_MONTHS = 6
 
 interface NodePos {
-  name: string
-  totalSpend: number
+  id: string
   x: number
   y: number
+  totalSpend: number
+  r: number // visual radius
 }
 
-function circleLayout(nodes: CorrelationWebData['nodes']): NodePos[] {
-  const r = Math.min(CX, CY) * 0.65
+function formatINR(v: number) {
+  if (v >= 100000) return `₹${(v / 100000).toFixed(1)}L`
+  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`
+  return `₹${v.toFixed(0)}`
+}
+
+const W = 480
+const H = 380
+const CX = W / 2
+const CY = H / 2
+
+function layoutNodes(nodes: CorrelationNode[]): NodePos[] {
+  if (nodes.length === 0) return []
+  const maxSpend = Math.max(...nodes.map((n) => n.totalSpend))
   return nodes.map((n, i) => {
     const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2
-    return { ...n, x: CX + r * Math.cos(angle), y: CY + r * Math.sin(angle) }
+    const distance = 140
+    const radius = 10 + (n.totalSpend / maxSpend) * 22
+    return {
+      id: n.id,
+      x: CX + Math.cos(angle) * distance,
+      y: CY + Math.sin(angle) * distance,
+      totalSpend: n.totalSpend,
+      r: radius,
+    }
   })
 }
 
-function nodeRadius(spend: number, maxSpend: number): number {
-  if (maxSpend === 0) return NODE_RADIUS_BASE
-  return NODE_RADIUS_BASE + (NODE_RADIUS_MAX - NODE_RADIUS_BASE) * Math.sqrt(spend / maxSpend)
-}
-
 export function CorrelationWeb() {
-  const db = useDb()
   const [computing, setComputing] = useState(false)
-  const [selected, setSelected] = useState<string | null>(null)
-  const svgRef = useRef<SVGSVGElement>(null)
+  const [nodes, setNodes] = useState<CorrelationNode[] | null>(null)
+  const [edges, setEdges] = useState<CorrelationEdge[] | null>(null)
+  const [computedAt, setComputedAt] = useState<string | null>(null)
+  const [selectedNode, setSelectedNode] = useState<string | null>(null)
+  const [insufficientData, setInsufficientData] = useState(false)
 
-  const cached = useLiveQuery(async () => {
-    if (!db) return null
-    return db.computedInsights.get(CACHE_KEY)
-  }, [db])
+  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
+  const categories = useLiveQuery(() => db.categories.toArray(), [])
 
-  const isFresh = cached &&
-    ((Date.now() - new Date(cached.computedAt).getTime()) / 86400000) < CACHE_TTL_DAYS &&
-    cached.version === CACHE_VERSION
+  useLiveQuery(async () => {
+    const cached = await db.computedInsights.get(CACHE_KEY)
+    if (!cached) return
+    const ageDays = (Date.now() - new Date(cached.computedAt).getTime()) / 86400000
+    if (ageDays < CACHE_TTL_DAYS && cached.version === CACHE_VERSION) {
+      const { nodes: n, edges: e } = JSON.parse(cached.value)
+      setNodes(n)
+      setEdges(e)
+      setComputedAt(cached.computedAt)
+    }
+  }, [])
 
   const compute = useCallback(async () => {
-    if (!db) return
+    if (!transactions || !categories) return
     setComputing(true)
-    try {
-      const txns = await db.transactions.toArray()
-      const categories = await db.categories.toArray()
+    setInsufficientData(false)
 
-      // Check data sufficiency (need ≥ 6 months)
-      const months = new Set(txns.map((t) => t.date.slice(0, 7)))
-      if (months.size < 6) {
-        await db.computedInsights.put({
-          key: CACHE_KEY,
-          value: JSON.stringify({ insufficient: true }),
-          computedAt: new Date().toISOString(),
-          version: CACHE_VERSION,
-        })
-        return
-      }
+    const catMap = new Map(categories.map((c) => [c.id!, c.name]))
 
-      const subCatMap = new Map(
-        categories
-          .filter((c) => c.parentId != null)
-          .map((c) => [c.id!, c.name])
-      )
+    // Build subcategory monthly spend (use categoryId, or subCategoryId if present)
+    const monthlyData = new Map<string, Map<string, number>>()
+    const months = new Set<string>()
 
-      const monthlySpend = buildMonthlySubCategorySpend(txns, subCatMap, 15)
-      const webData = computeCorrelationWeb(monthlySpend, CORRELATION_THRESHOLD)
-
-      await db.computedInsights.put({
-        key: CACHE_KEY,
-        value: JSON.stringify({ insufficient: false, ...webData }),
-        computedAt: new Date().toISOString(),
-        version: CACHE_VERSION,
-      })
-    } finally {
-      setComputing(false)
+    for (const t of transactions) {
+      if (t.transactionType !== 'EXPENSE') continue
+      const catId = t.subCategoryId ?? t.categoryId
+      if (!catId) continue
+      const catName = catMap.get(catId) ?? `Cat ${catId}`
+      const month = t.date.slice(0, 7)
+      months.add(month)
+      if (!monthlyData.has(catName)) monthlyData.set(catName, new Map())
+      const mm = monthlyData.get(catName)!
+      mm.set(month, (mm.get(month) ?? 0) + t.amount)
     }
-  }, [db])
 
-  const raw: (CorrelationWebData & { insufficient?: boolean }) | null = useMemo(() => {
-    if (!cached) return null
-    return JSON.parse(cached.value)
-  }, [cached])
+    if (months.size < MIN_MONTHS) {
+      setInsufficientData(true)
+      setComputing(false)
+      return
+    }
 
-  const positions = useMemo(() => {
-    if (!raw?.nodes?.length) return []
-    return circleLayout(raw.nodes)
-  }, [raw])
+    const result = computeCorrelations(monthlyData)
+    const now = new Date().toISOString()
 
-  const maxSpend = useMemo(() => {
-    return positions.reduce((m, n) => Math.max(m, n.totalSpend), 0)
-  }, [positions])
+    await db.computedInsights.put({
+      key: CACHE_KEY,
+      value: JSON.stringify(result),
+      computedAt: now,
+      version: CACHE_VERSION,
+    })
 
-  const daysAgo = cached
-    ? Math.floor((Date.now() - new Date(cached.computedAt).getTime()) / 86400000)
+    setNodes(result.nodes)
+    setEdges(result.edges)
+    setComputedAt(now)
+    setComputing(false)
+  }, [transactions, categories])
+
+  const nodePositions = useMemo<NodePos[]>(
+    () => (nodes ? layoutNodes(nodes) : []),
+    [nodes]
+  )
+
+  const posMap = useMemo(
+    () => new Map(nodePositions.map((n) => [n.id, n])),
+    [nodePositions]
+  )
+
+  const selectedEdges = useMemo(
+    () =>
+      selectedNode && edges
+        ? new Set(
+            edges
+              .filter((e) => e.source === selectedNode || e.target === selectedNode)
+              .flatMap((e) => [e.source, e.target])
+          )
+        : null,
+    [selectedNode, edges]
+  )
+
+  const daysAgo = computedAt
+    ? Math.floor((Date.now() - new Date(computedAt).getTime()) / 86400000)
     : null
 
-  const selectedEdges = useMemo(() => {
-    if (!selected || !raw?.edges) return new Set<string>()
-    return new Set(
-      raw.edges
-        .filter((e) => e.source === selected || e.target === selected)
-        .flatMap((e) => [`${e.source}__${e.target}`, `${e.target}__${e.source}`])
-    )
-  }, [selected, raw])
-
-  const selectedConnections = useMemo(() => {
-    if (!selected || !raw?.edges) return []
-    return raw.edges
-      .filter((e) => e.source === selected || e.target === selected)
-      .map((e) => ({
-        other: e.source === selected ? e.target : e.source,
-        r: e.r,
-      }))
-      .sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
-  }, [selected, raw])
-
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 md:p-6">
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Share2 className="w-5 h-5 text-orange-400" />
-          <h2 className="text-base md:text-lg font-semibold text-white">Spending DNA / Correlation Web</h2>
+    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-base font-semibold text-white">Spending DNA — Correlation Web</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Based on all available data · Tap a node to explore</p>
         </div>
-        <span className="text-xs text-slate-500">Based on all available data</span>
-      </div>
-      <p className="text-xs text-slate-400 mb-4">
-        Node size = total spend. Lines = how categories move together (|r| &gt; 0.4). Tap a node to explore.
-      </p>
-
-      <div className="flex items-center gap-3 mb-4">
-        {!isFresh ? (
+        <div className="flex items-center gap-2">
+          {daysAgo !== null && (
+            <span className="text-xs text-slate-500">
+              Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
+            </span>
+          )}
           <button
             onClick={compute}
             disabled={computing}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white text-sm rounded-lg transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition disabled:opacity-50"
           >
-            {computing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {computing ? 'Computing…' : '▶ Compute'}
+            {computing ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : nodes ? (
+              <RefreshCw className="w-3.5 h-3.5" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            {computing ? 'Computing…' : nodes ? 'Recompute' : 'Compute'}
           </button>
-        ) : (
-          <button
-            onClick={compute}
-            disabled={computing}
-            className="flex items-center gap-2 px-3 py-1.5 border border-slate-600 hover:border-slate-400 text-slate-400 hover:text-slate-200 text-xs rounded-lg transition"
-          >
-            <RefreshCw className={`w-3 h-3 ${computing ? 'animate-spin' : ''}`} />
-            Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`} · Recompute
-          </button>
-        )}
+        </div>
       </div>
 
-      {/* Insufficient data */}
-      {raw?.insufficient && (
-        <p className="text-slate-400 text-sm text-center py-8 border border-slate-700 rounded-lg">
-          Need at least 6 months of data to compute correlations.
-        </p>
+      {!nodes && !computing && !insufficientData && (
+        <div className="flex items-center justify-center h-48 text-slate-500 text-sm">
+          Press Compute to map spending correlations
+        </div>
       )}
 
-      {/* Web visualization */}
-      {raw && !raw.insufficient && positions.length > 0 && (
-        <>
-          <div className="flex gap-4 text-xs mb-3">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-6 h-0.5 bg-orange-400" />
-              <span className="text-slate-400">Positive correlation</span>
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-6 h-0.5 bg-blue-400" />
-              <span className="text-slate-400">Negative correlation</span>
-            </span>
-          </div>
+      {insufficientData && (
+        <div className="flex items-center justify-center h-48 text-slate-400 text-sm text-center px-4">
+          Need at least 6 months of data to compute correlations.
+        </div>
+      )}
 
-          <div className="overflow-x-auto [&::-webkit-scrollbar]:hidden">
+      {computing && (
+        <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+          Computing correlations…
+        </div>
+      )}
+
+      {nodes && edges && !computing && (
+        <>
+          {selectedNode && (
+            <div className="mt-2 mb-2 p-3 bg-slate-700/50 rounded-lg border border-slate-600 text-xs text-slate-300">
+              <span className="font-semibold text-white">{selectedNode}</span> moves together with:{' '}
+              {edges
+                .filter((e) => e.source === selectedNode || e.target === selectedNode)
+                .map((e) => (e.source === selectedNode ? e.target : e.source))
+                .join(', ') || 'no strong correlations'}
+            </div>
+          )}
+
+          <div className="mt-3 overflow-x-auto">
             <svg
-              ref={svgRef}
-              viewBox={`0 0 ${SVG_W} ${SVG_H}`}
-              width="100%"
-              style={{ maxWidth: SVG_W }}
-              className="touch-manipulation"
+              width={W}
+              height={H}
+              className="mx-auto"
+              onClick={(e) => {
+                if ((e.target as SVGElement).tagName === 'svg') setSelectedNode(null)
+              }}
             >
               {/* Edges */}
-              {raw.edges.map((edge) => {
-                const src = positions.find((p) => p.name === edge.source)
-                const tgt = positions.find((p) => p.name === edge.target)
+              {edges.map((edge, i) => {
+                const src = posMap.get(edge.source)
+                const tgt = posMap.get(edge.target)
                 if (!src || !tgt) return null
-                const edgeKey = `${edge.source}__${edge.target}`
-                const isHighlighted = selected ? selectedEdges.has(edgeKey) : true
-                const opacity = selected ? (isHighlighted ? 0.9 : 0.07) : 0.5
-                const strokeW = 1 + 3 * Math.abs(edge.r)
+                const isHighlighted =
+                  !selectedNode ||
+                  edge.source === selectedNode ||
+                  edge.target === selectedNode
                 return (
                   <line
-                    key={edgeKey}
-                    x1={src.x} y1={src.y}
-                    x2={tgt.x} y2={tgt.y}
-                    stroke={edge.r > 0 ? '#fb923c' : '#60a5fa'}
-                    strokeWidth={strokeW}
-                    strokeOpacity={opacity}
+                    key={i}
+                    x1={src.x}
+                    y1={src.y}
+                    x2={tgt.x}
+                    y2={tgt.y}
+                    stroke={edge.r > 0 ? '#f97316' : '#60a5fa'}
+                    strokeWidth={1 + Math.abs(edge.r) * 3}
+                    strokeOpacity={isHighlighted ? 0.8 : 0.15}
                   />
                 )
               })}
 
               {/* Nodes */}
-              {positions.map((n) => {
-                const r = nodeRadius(n.totalSpend, maxSpend)
-                const isSelected = n.name === selected
-                const dimmed = selected && !isSelected && !selectedEdges.has(n.name)
+              {nodePositions.map((node) => {
+                const isSelected = selectedNode === node.id
+                const isDimmed = selectedNode && !selectedEdges?.has(node.id) && !isSelected
                 return (
                   <g
-                    key={n.name}
-                    onClick={() => setSelected(isSelected ? null : n.name)}
+                    key={node.id}
+                    onClick={() => setSelectedNode(isSelected ? null : node.id)}
                     style={{ cursor: 'pointer' }}
                   >
                     <circle
-                      cx={n.x} cy={n.y} r={r}
-                      fill={isSelected ? '#f97316' : '#6366f1'}
-                      fillOpacity={dimmed ? 0.15 : isSelected ? 1 : 0.75}
-                      stroke={isSelected ? '#fff' : '#818cf8'}
+                      cx={node.x}
+                      cy={node.y}
+                      r={node.r}
+                      fill={isSelected ? '#6366f1' : '#334155'}
+                      stroke={isSelected ? '#818cf8' : '#475569'}
                       strokeWidth={isSelected ? 2 : 1}
+                      opacity={isDimmed ? 0.3 : 1}
                     />
                     <text
-                      x={n.x} y={n.y + r + 12}
+                      x={node.x}
+                      y={node.y + node.r + 11}
                       textAnchor="middle"
-                      fontSize={9}
-                      fill={dimmed ? '#475569' : '#cbd5e1'}
+                      fontSize={8}
+                      fill={isDimmed ? '#475569' : '#94a3b8'}
                     >
-                      {n.name.length > 10 ? n.name.slice(0, 9) + '…' : n.name}
+                      {node.id.length > 12 ? node.id.slice(0, 11) + '…' : node.id}
+                    </text>
+                    <text
+                      x={node.x}
+                      y={node.y + 3}
+                      textAnchor="middle"
+                      fontSize={7}
+                      fill={isDimmed ? '#334155' : '#e2e8f0'}
+                    >
+                      {formatINR(node.totalSpend)}
                     </text>
                   </g>
                 )
@@ -248,38 +276,16 @@ export function CorrelationWeb() {
             </svg>
           </div>
 
-          {/* Selected node info */}
-          {selected && selectedConnections.length > 0 && (
-            <div className="mt-4 p-3 bg-slate-900 rounded-lg border border-slate-700">
-              <p className="text-sm text-white font-medium mb-2">
-                When <span className="text-orange-400">{selected}</span> is high, these tend to move together:
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {selectedConnections.map((c) => (
-                  <span key={c.other} className="flex items-center gap-1 px-2 py-1 rounded-full text-xs border border-slate-600">
-                    <span className={c.r > 0 ? 'text-orange-400' : 'text-blue-400'}>
-                      {c.r > 0 ? '↑' : '↓'}
-                    </span>
-                    <span className="text-slate-200">{c.other}</span>
-                    <span className="text-slate-500">r={c.r.toFixed(2)}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selected && selectedConnections.length === 0 && (
-            <p className="mt-3 text-xs text-slate-500">
-              No strong correlations found for {selected}.
-            </p>
-          )}
+          <div className="mt-3 flex gap-4 text-xs text-slate-500">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-6 h-0.5 bg-orange-400" /> Positive correlation
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-6 h-0.5 bg-blue-400" /> Negative correlation
+            </span>
+            <span className="text-slate-600">· Only |r| &gt; 0.4 shown · Node size = total spend</span>
+          </div>
         </>
-      )}
-
-      {!raw && !computing && (
-        <p className="text-slate-500 text-sm text-center py-8">
-          Press ▶ Compute to generate the correlation web.
-        </p>
       )}
     </div>
   )

@@ -1,17 +1,15 @@
 import Dexie, { type Table } from 'dexie';
-import type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket } from '@/types/database';
+import type { Account, Category, Transaction, ThresholdWarning, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket } from '@/types/database';
 
 export class MySubClassedDB extends Dexie {
   accounts!: Table<Account>;
   categories!: Table<Category>;
   transactions!: Table<Transaction>;
-  filterPresets!: Table<FilterPreset>;
   budgets!: Table<Budget>;
   goals!: Table<Goal>;
   lifeEvents!: Table<LifeEvent>;
   feedbackLog!: Table<FeedbackLog>;
   appSettings!: Table<AppSetting>;
-  // Phase 2 tables
   computedInsights!: Table<ComputedInsight>;
   categoryBuckets!: Table<CategoryBucket>;
 
@@ -29,24 +27,18 @@ export class MySubClassedDB extends Dexie {
       transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId',
     });
 
-    // v3: Remove unique constraint on category name
+    // v3: Remove unique constraint on category name - same name can exist for different types/parents
     this.version(3).stores({
       accounts: '++id, &name, type, groupId',
       categories: '++id, name, type, parentId',
       transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId',
     });
 
-    // v4: Add filterPresets table (from v1.1)
+    // v4: Phase 1 — add budgets, goals, lifeEvents, feedbackLog, appSettings
     this.version(4).stores({
-      filterPresets: '++id, name',
-    });
-
-    // v5: Phase 1 — add budgets, goals, lifeEvents, feedbackLog, appSettings
-    this.version(5).stores({
       accounts: '++id, &name, type, groupId',
       categories: '++id, name, type, parentId',
       transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId',
-      filterPresets: '++id, name',
       budgets: '++id, categoryId',
       goals: '++id, status',
       lifeEvents: '++id, detectedMonth',
@@ -54,12 +46,11 @@ export class MySubClassedDB extends Dexie {
       appSettings: '&key',
     });
 
-    // v6: Phase 2 — add computedInsights and categoryBuckets
-    this.version(6).stores({
+    // v5: Phase 2 — add computedInsights, categoryBuckets
+    this.version(5).stores({
       accounts: '++id, &name, type, groupId',
       categories: '++id, name, type, parentId',
       transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId',
-      filterPresets: '++id, name',
       budgets: '++id, categoryId',
       goals: '++id, status',
       lifeEvents: '++id, detectedMonth',
@@ -73,4 +64,4 @@ export class MySubClassedDB extends Dexie {
 
 export const db = new MySubClassedDB();
 
-export type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket };
+export type { Account, Category, Transaction, ThresholdWarning, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket };

@@ -2,12 +2,10 @@
 
 import { useDateFilter } from '@/hooks/useDateFilter'
 import { CategoryComposition } from '@/components/stats/CategoryComposition'
-import { CategoryTrend } from '@/components/stats/CategoryTrend'
 import { SubCategoryTrend } from '@/components/stats/SubCategoryTrend'
 import { IncomeVsExpense } from '@/components/stats/IncomeVsExpense'
 import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
 import { NetWorth } from '@/components/stats/NetWorth'
-// Phase 2 deep insight components
 import { LifestyleInflationCurve } from '@/components/stats/LifestyleInflationCurve'
 import { SeasonalHeatmap } from '@/components/stats/SeasonalHeatmap'
 import { CorrelationWeb } from '@/components/stats/CorrelationWeb'
@@ -28,29 +26,28 @@ export default function StatsPage() {
   } = useDateFilter()
 
   const [showCustomRange, setShowCustomRange] = useState(false)
-  const [categoryClick, setCategoryClick] = useState<{ name: string; type: 'EXPENSE' | 'INCOME'; _t: number } | null>(null)
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Header — sticky so period selector stays visible while scrolling */}
-      <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3 md:py-6">
-          <div className="flex items-center justify-between mb-3 md:mb-6">
+      {/* Header */}
+      <div className="border-b border-border bg-card/50">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-primary/10 rounded-lg text-primary">
-                <BarChart3 className="w-5 h-5 md:w-6 md:h-6" />
+                <BarChart3 className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl md:text-2xl font-bold">Stats & Insights</h1>
-                <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
+                <h1 className="text-2xl font-bold">Stats & Insights</h1>
+                <p className="text-sm text-muted-foreground">
                   Comprehensive financial analytics and trends
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Period Filter — horizontally scrollable on mobile */}
-          <div className="flex overflow-x-auto gap-2 items-center pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          {/* Period Filter */}
+          <div className="flex flex-wrap gap-2 items-center">
             <span className="text-sm text-muted-foreground">Period:</span>
 
             <button
@@ -178,52 +175,37 @@ export default function StatsPage() {
         {/* Income vs Expense - Full Width */}
         <IncomeVsExpense dateRange={dateRange} />
 
-        {/* Category Composition - Expense & Income Side by Side */}
+        {/* Category Composition & Sub-Category Trend - Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <CategoryComposition
-            dateRange={dateRange}
-            type="EXPENSE"
-            onCategoryClick={(name) => setCategoryClick({ name, type: 'EXPENSE', _t: Date.now() })}
-          />
-          <CategoryComposition
-            dateRange={dateRange}
-            type="INCOME"
-            onCategoryClick={(name) => setCategoryClick({ name, type: 'INCOME', _t: Date.now() })}
-          />
+          <CategoryComposition dateRange={dateRange} />
+          <SubCategoryTrend dateRange={dateRange} />
         </div>
-
-        {/* Category Trend - Full Width */}
-        <CategoryTrend dateRange={dateRange} categoryClick={categoryClick} />
-
-        {/* Sub-Category Trend - Full Width */}
-        <SubCategoryTrend dateRange={dateRange} />
 
         {/* Account Balance History - Full Width */}
         <AccountBalanceHistory dateRange={dateRange} />
 
-        {/* ── Phase 2: Deep Financial Insight Visuals ─────────────────── */}
-        <div className="pt-4 border-t border-slate-700">
-          <h2 className="text-xs text-slate-500 uppercase tracking-widest mb-6">
-            Deep Insights — Based on All Available Data
-          </h2>
-
+        {/* ── Phase 2: Deep Insight Visuals ── */}
+        <div className="pt-4 border-t border-border">
+          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-6">
+            Deep Insights · Based on all available data
+          </p>
           <div className="space-y-8">
-            {/* Feature 15 — Lifestyle Inflation Curve */}
+            {/* Feature 15 */}
             <LifestyleInflationCurve />
 
-            {/* Feature 16 — Seasonal Heatmap */}
+            {/* Feature 16 */}
             <SeasonalHeatmap />
 
-            {/* Feature 17 — Correlation Web / Spending DNA */}
+            {/* Feature 17 */}
             <CorrelationWeb />
 
-            {/* Feature 18 & 19 — Identity Card + Age Score side by side on large screens */}
+            {/* Feature 18 + 19 — side by side on desktop */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <FinancialIdentityCard />
               <FinancialAgeScore />
             </div>
 
-            {/* Feature 20 — The Uncomfortable Truth */}
+            {/* Feature 20 */}
             <UncomfortableTruth />
           </div>
         </div>
