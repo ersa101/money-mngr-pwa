@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting } from '@/types/database';
+import type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket } from '@/types/database';
 
 export class MySubClassedDB extends Dexie {
   accounts!: Table<Account>;
@@ -11,6 +11,9 @@ export class MySubClassedDB extends Dexie {
   lifeEvents!: Table<LifeEvent>;
   feedbackLog!: Table<FeedbackLog>;
   appSettings!: Table<AppSetting>;
+  // Phase 2 tables
+  computedInsights!: Table<ComputedInsight>;
+  categoryBuckets!: Table<CategoryBucket>;
 
   constructor() {
     super('moneyMngrDB');
@@ -50,9 +53,22 @@ export class MySubClassedDB extends Dexie {
       feedbackLog: '++id, featureId, syncedToSheet',
       appSettings: '&key',
     });
+
+    // v6: Phase 1.5 — index updatedAt on the three sync-critical tables for conflict resolution
+    this.version(6).stores({
+      accounts: '++id, &name, type, groupId, updatedAt',
+      categories: '++id, name, type, parentId, updatedAt',
+      transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId, updatedAt',
+    });
+
+    // v7: Phase 2 — computed insight cache + category bucket mapping
+    this.version(7).stores({
+      computedInsights: '++id, &key, computedAt',
+      categoryBuckets: '++id, categoryId, bucketName',
+    });
   }
 }
 
 export const db = new MySubClassedDB();
 
-export type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting };
+export type { Account, Category, Transaction, ThresholdWarning, FilterPreset, Budget, Goal, LifeEvent, FeedbackLog, AppSetting, ComputedInsight, CategoryBucket };

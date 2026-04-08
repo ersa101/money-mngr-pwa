@@ -30,7 +30,7 @@ export interface Account {
   includeInNetWorth?: boolean;
   isLiability?: boolean;
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 export interface Category {
@@ -42,7 +42,7 @@ export interface Category {
   color?: string;
   sortOrder?: number;
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
@@ -82,7 +82,7 @@ export interface Transaction {
   csvCategory?: string;
   csvSubcategory?: string;
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 // ─── Phase 1 additions ────────────────────────────────────────────────────────
@@ -132,4 +132,23 @@ export interface FeedbackLog {
 export interface AppSetting {
   key: string;
   value: string;
+}
+
+// ─── Phase 2 additions ────────────────────────────────────────────────────────
+
+export interface ComputedInsight {
+  id?: number;
+  key: string;         // e.g. 'lifestyle_inflation' | 'seasonal_heatmap' | 'correlation_web'
+  value: string;       // JSON stringified result
+  computedAt: string;  // ISO timestamp
+  version: number;     // increment if computation logic changes, triggers recompute
+}
+
+export type BucketName = 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST';
+
+export interface CategoryBucket {
+  id?: number;
+  categoryId: number;
+  categoryName: string;
+  bucketName: BucketName;
 }

@@ -9,6 +9,13 @@ import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
 import { NetWorth } from '@/components/stats/NetWorth'
 import { BarChart3, Calendar } from 'lucide-react'
 import { useState } from 'react'
+// Phase 2 — Deep Insight Visuals
+import { LifestyleInflationCurve } from '@/components/stats/LifestyleInflationCurve'
+import { SeasonalHeatmap } from '@/components/stats/SeasonalHeatmap'
+import { CorrelationWeb } from '@/components/stats/CorrelationWeb'
+import { FinancialIdentityCard } from '@/components/stats/FinancialIdentityCard'
+import { FinancialAgeScore } from '@/components/stats/FinancialAgeScore'
+import { UncomfortableTruth } from '@/components/stats/UncomfortableTruth'
 
 export default function StatsPage() {
   const {
@@ -42,8 +49,8 @@ export default function StatsPage() {
             </div>
           </div>
 
-          {/* Period Filter */}
-          <div className="flex flex-wrap gap-2 items-center">
+          {/* Period Filter — scrollable on mobile, wrapping on desktop */}
+          <div className="flex gap-2 items-center overflow-x-auto scrollbar-hide md:flex-wrap">
             <span className="text-sm text-muted-foreground">Period:</span>
 
             <button
@@ -51,7 +58,7 @@ export default function StatsPage() {
                 setPeriod('monthly')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'monthly'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'border-border hover:border-primary/50 text-foreground'
@@ -65,7 +72,7 @@ export default function StatsPage() {
                 setPeriod('quarterly')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'quarterly'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'border-border hover:border-primary/50 text-foreground'
@@ -79,7 +86,7 @@ export default function StatsPage() {
                 setPeriod('semi-annual')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'semi-annual'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'border-border hover:border-primary/50 text-foreground'
@@ -93,7 +100,7 @@ export default function StatsPage() {
                 setPeriod('annual')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'annual'
                   ? 'bg-primary text-primary-foreground border-primary'
                   : 'border-border hover:border-primary/50 text-foreground'
@@ -193,6 +200,29 @@ export default function StatsPage() {
 
         {/* Account Balance History - Full Width */}
         <AccountBalanceHistory dateRange={dateRange} />
+
+        {/* ── Phase 2: Deep Insight Visuals ── */}
+        <div className="border-t border-slate-700 pt-8">
+          <p className="text-xs text-slate-500 mb-6 uppercase tracking-widest">Deep Insights</p>
+        </div>
+
+        {/* Feature 15 — Lifestyle Inflation Curve */}
+        <LifestyleInflationCurve />
+
+        {/* Feature 16 — Seasonal Heatmap */}
+        <SeasonalHeatmap />
+
+        {/* Feature 17 — Correlation Web / Spending DNA */}
+        <CorrelationWeb />
+
+        {/* Feature 18 — Financial Identity Card */}
+        <FinancialIdentityCard />
+
+        {/* Feature 19 — Financial Age Score */}
+        <FinancialAgeScore />
+
+        {/* Feature 20 — The Uncomfortable Truth */}
+        <UncomfortableTruth />
       </div>
     </div>
   )

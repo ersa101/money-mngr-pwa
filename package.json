@@ -19,6 +19,7 @@
     "dexie": "^4.0.7",
     "dexie-react-hooks": "^1.1.7",
     "googleapis": "^170.1.0",
+    "html2canvas": "^1.4.1",
     "lucide-react": "^0.395.0",
     "next": "^15",
     "next-auth": "^5.0.0-beta.30",
