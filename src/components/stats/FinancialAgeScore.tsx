@@ -129,12 +129,12 @@ export function FinancialAgeScore() {
   // Prompt for real age if not set
   if (realAge === null) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Brain className="w-5 h-5 text-purple-400" />
-          <h3 className="text-base font-semibold text-white">Financial Age Score</h3>
+          <Brain className="w-5 h-5 text-purple-600" />
+          <h3 className="text-base font-semibold text-gray-900">Financial Age Score</h3>
         </div>
-        <p className="text-sm text-slate-400 mb-4">Enter your real age to compute your Financial Age.</p>
+        <p className="text-sm text-gray-500 mb-4">Enter your real age to compute your Financial Age.</p>
         <div className="flex gap-2 max-w-xs">
           <input
             type="number"
@@ -143,7 +143,7 @@ export function FinancialAgeScore() {
             placeholder="Your age"
             min={10}
             max={100}
-            className="flex-1 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
           <button
             onClick={saveRealAge}
@@ -157,7 +157,7 @@ export function FinancialAgeScore() {
   }
 
   if (!result) {
-    return <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 animate-pulse h-48" />
+    return <div className="bg-white border border-gray-200 rounded-xl p-5 animate-pulse h-48" />
   }
 
   const isOlder = result.delta > 0
@@ -165,40 +165,40 @@ export function FinancialAgeScore() {
   const deltaAbs = Math.abs(result.delta)
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-center gap-2 mb-4">
-        <Brain className="w-5 h-5 text-purple-400" />
-        <h3 className="text-base font-semibold text-white">Financial Age Score</h3>
+        <Brain className="w-5 h-5 text-purple-600" />
+        <h3 className="text-base font-semibold text-gray-900">Financial Age Score</h3>
       </div>
 
       <div className="flex items-end gap-8 mb-4">
         <div>
-          <p className="text-xs text-slate-400 mb-1">Financial Age</p>
-          <p className={`text-5xl font-bold ${isOlder ? 'text-red-400' : isYounger ? 'text-emerald-400' : 'text-white'}`}>
+          <p className="text-xs text-gray-500 mb-1">Financial Age</p>
+          <p className={`text-5xl font-bold ${isOlder ? 'text-red-600' : isYounger ? 'text-emerald-600' : 'text-gray-900'}`}>
             {result.financialAge}
           </p>
         </div>
         <div className="pb-1">
-          <p className="text-xs text-slate-500">Real Age</p>
-          <p className="text-2xl font-semibold text-slate-300">{result.realAge}</p>
+          <p className="text-xs text-gray-400">Real Age</p>
+          <p className="text-2xl font-semibold text-gray-600">{result.realAge}</p>
         </div>
       </div>
 
       {deltaAbs === 0 ? (
-        <p className="text-sm text-slate-400 mb-4">Your financial behaviour matches your real age. ✅</p>
+        <p className="text-sm text-gray-500 mb-4">Your financial behaviour matches your real age. ✅</p>
       ) : isOlder ? (
-        <p className="text-sm text-slate-400 mb-4">
-          You&apos;re thinking <span className="text-red-400 font-semibold">{deltaAbs} years older</span> than you are. 🔴
+        <p className="text-sm text-gray-500 mb-4">
+          You&apos;re thinking <span className="text-red-600 font-semibold">{deltaAbs} years older</span> than you are. 🔴
         </p>
       ) : (
-        <p className="text-sm text-slate-400 mb-4">
-          You&apos;re thinking <span className="text-emerald-400 font-semibold">{deltaAbs} years younger</span> than you are. 🟢
+        <p className="text-sm text-gray-500 mb-4">
+          You&apos;re thinking <span className="text-emerald-600 font-semibold">{deltaAbs} years younger</span> than you are. 🟢
         </p>
       )}
 
       <button
         onClick={() => setShowBreakdown(!showBreakdown)}
-        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition mb-3"
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 transition mb-3"
       >
         {showBreakdown ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         {showBreakdown ? 'Hide' : 'Show'} factor breakdown
@@ -207,15 +207,15 @@ export function FinancialAgeScore() {
       {showBreakdown && (
         <div className="space-y-2">
           {result.factors.map((f, i) => (
-            <div key={i} className="flex items-start gap-3 bg-slate-900 rounded-lg px-3 py-2.5">
+            <div key={i} className="flex items-start gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
               <span className={`text-sm font-bold w-12 flex-shrink-0 ${
-                f.adjustment < 0 ? 'text-emerald-400' : f.adjustment > 0 ? 'text-red-400' : 'text-slate-400'
+                f.adjustment < 0 ? 'text-emerald-600' : f.adjustment > 0 ? 'text-red-600' : 'text-gray-500'
               }`}>
                 {f.adjustment > 0 ? `+${f.adjustment}y` : f.adjustment < 0 ? `${f.adjustment}y` : '±0'}
               </span>
               <div>
-                <p className="text-xs font-medium text-slate-200">{f.label}</p>
-                <p className="text-xs text-slate-500">{f.reason}</p>
+                <p className="text-xs font-medium text-gray-800">{f.label}</p>
+                <p className="text-xs text-gray-500">{f.reason}</p>
               </div>
             </div>
           ))}

@@ -42,7 +42,7 @@ export function pearson(x: number[], y: number[]): number {
 }
 
 // Align two monthly series to the same set of months (union), filling missing months with 0
-function alignSeries(a: MonthlySpend[], b: MonthlySpend[]): { x: number[]; y: number[] } {
+export function alignSeries(a: MonthlySpend[], b: MonthlySpend[]): { x: number[]; y: number[] } {
   const allMonths = Array.from(
     new Set([...a.map((m) => m.month), ...b.map((m) => m.month)])
   ).sort()
@@ -74,6 +74,19 @@ export function computeCorrelations(
   }
 
   return edges
+}
+
+// Compute full N×N Pearson r matrix (diagonal = 1)
+export function computeFullMatrix(series: SubCategoryMonthly[]): number[][] {
+  const n = series.length
+  const matrix: number[][] = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => {
+      if (i === j) return 1
+      const { x, y } = alignSeries(series[i].monthly, series[j].monthly)
+      return pearson(x, y)
+    })
+  )
+  return matrix
 }
 
 // Group raw transactions into SubCategoryMonthly series for top N sub-categories

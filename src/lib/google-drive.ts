@@ -154,9 +154,43 @@ export async function deleteSnapshot(
   await drive.files.delete({ fileId });
 }
 
+// ─── Upload Insight Text File ─────────────────────────────────────────────────
+
+export async function uploadInsightFile(
+  accessToken: string,
+  insightId: string,
+  content: string
+): Promise<{ id: string; name: string; folderLink: string }> {
+  const drive = getDriveClient(accessToken);
+  const folderId = await getSnapshotsFolderId(accessToken);
+
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const fileName = `FAIN_${insightId}_${timestamp}.txt`;
+
+  const file = await drive.files.create({
+    requestBody: {
+      name: fileName,
+      parents: [folderId],
+      mimeType: 'text/plain',
+    },
+    media: {
+      mimeType: 'text/plain',
+      body: content,
+    },
+    fields: 'id, name',
+  });
+
+  return {
+    id: file.data.id!,
+    name: file.data.name!,
+    folderLink: `https://drive.google.com/drive/folders/${folderId}`,
+  };
+}
+
 export const driveClient = {
   createSnapshot,
   listSnapshots,
   getSnapshot,
   deleteSnapshot,
+  uploadInsightFile,
 };

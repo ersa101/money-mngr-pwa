@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import type { Account } from '@/types/database'
+import { pushToSheets } from '@/lib/syncService'
 
 export function useAccount() {
   const [loading, setLoading] = useState(false)
@@ -11,7 +12,8 @@ export function useAccount() {
     setLoading(true)
     setError(null)
     try {
-      const id = await db.accounts.add(account)
+      const id = await db.accounts.add({ ...account, updatedAt: Date.now() })
+      pushToSheets()
       return id
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to create account'
@@ -26,7 +28,8 @@ export function useAccount() {
     setLoading(true)
     setError(null)
     try {
-      await db.accounts.update(id, updates)
+      await db.accounts.update(id, { ...updates, updatedAt: Date.now() })
+      pushToSheets()
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to update account'
       setError(errorMsg)
@@ -53,6 +56,7 @@ export function useAccount() {
       }
 
       await db.accounts.delete(id)
+      pushToSheets()
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to delete account'
       setError(errorMsg)

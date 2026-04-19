@@ -110,38 +110,41 @@ function parseJsonResponse(text: string): TransactionSuggestion | null {
   return null
 }
 
-// Call Gemini API
+const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash']
+
+// Call Gemini API — tries models in order, skips on 404 (deprecated model)
 async function callGemini(
   apiKey: string,
   prompt: string
 ): Promise<{ success: boolean; text?: string; error?: string }> {
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: 500
-          }
-        })
+    let lastError = ''
+    for (const model of GEMINI_MODELS) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: 500
+            }
+          })
+        }
+      )
+      if (response.status === 404) { lastError = `Model ${model} unavailable`; continue; }
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        return { success: false, error: errorData.error?.message || `Gemini API error: ${response.status}` }
       }
-    )
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      return { success: false, error: errorData.error?.message || `Gemini API error: ${response.status}` }
+      const data = await response.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (text) return { success: true, text }
+      lastError = `No response from ${model}`
     }
-
-    const data = await response.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (text) {
-      return { success: true, text }
-    }
-    return { success: false, error: 'No response from Gemini' }
+    return { success: false, error: lastError || 'All Gemini models failed' }
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Gemini request failed' }
   }

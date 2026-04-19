@@ -60,7 +60,7 @@ function StackTooltip({ active, payload, label }: any) {
 
 export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   const db = useDb()
-  const [granularity, setGranularity] = useState<Granularity>('1W')
+  const [granularity, setGranularity] = useState<Granularity>('1M')
   const [chartType, setChartType] = useState<ChartType>('line')
 
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
@@ -189,7 +189,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
 
   if (!hasIncludedAccounts) {
     return (
-      <div className="bg-card rounded-lg border border-border p-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold mb-4">Net Worth Trend</h3>
         <div className="text-center py-8 space-y-2">
           <p className="text-muted-foreground">No accounts are included in the net worth calculation.</p>
@@ -218,7 +218,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
     previousNetWorth !== 0 ? ((netWorthChange / previousNetWorth) * 100).toFixed(1) : '0'
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="mb-6">
         {/* Title row + controls */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -241,7 +241,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
               ))}
             </div>
             {/* Granularity selector */}
-            <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
               {(['1D', '1W', '1M'] as const).map(g => (
                 <button
                   key={g}
@@ -249,7 +249,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
                   className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
                     granularity === g
                       ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   {g}

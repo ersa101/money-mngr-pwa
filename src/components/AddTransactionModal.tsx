@@ -3,8 +3,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { pushToSheets } from '@/lib/syncService';
 import { parseSMS } from '@/lib/smsParser';
 import { llmService } from '@/lib/llmService';
+import { computeSourceHash } from '@/lib/importUtils';
 import { formatCurrency } from '@/lib/currency-utils';
 import { Transaction, Account, Category } from '@/types/database';
 import { Button } from '@/components/ui/button';
@@ -442,13 +444,24 @@ export function AddTransactionModal({
             subCategoryId: subCategoryId ? parseInt(subCategoryId) : undefined,
             description: note.trim() || undefined,
             notes: description.trim() || undefined,
-            updatedAt: now,
+            updatedAt: Date.now(),
           });
         });
+        pushToSheets();
         toast.success('Transaction updated!');
 
       } else {
         // Create new transaction
+        // Resolve account name for sourceHash — use fromAccountId for EXPENSE/TRANSFER, toAccountId for INCOME
+        const hashAccountId = fromAccountId || toAccountId
+        const hashAccount = accounts.find(a => a.id === (hashAccountId ? parseInt(hashAccountId) : -1))
+        const sourceHash = await computeSourceHash(
+          new Date(date).toISOString(),
+          amountValue,
+          hashAccount?.name ?? '',
+          transactionType
+        )
+
         const mainTransactionId = await db.transactions.add({
           date: new Date(date).toISOString(),
           amount: amountValue,
@@ -463,8 +476,9 @@ export function AddTransactionModal({
           source: parseSource === 'ai' || parseSource === 'regex' ? 'MAGIC_BOX' : 'MANUAL',
           currency: 'INR',
           linkedTransactionId: undefined,
+          sourceHash,
           createdAt: now,
-          updatedAt: now,
+          updatedAt: Date.now(),
         });
 
         // Update balances for non-linked transactions
@@ -490,7 +504,7 @@ export function AddTransactionModal({
             currency: 'INR',
             linkedTransactionId: mainTransactionId,
             createdAt: now,
-            updatedAt: now,
+            updatedAt: Date.now(),
           });
 
           await db.transactions.update(mainTransactionId, { linkedTransactionId });
@@ -502,6 +516,7 @@ export function AddTransactionModal({
         }
       }
 
+      pushToSheets();
       onClose();
     } catch (error) {
       console.error('Failed to save transaction:', error);
@@ -528,8 +543,8 @@ export function AddTransactionModal({
     const fromBelowThreshold = from ? fromNewBalance < from.thresholdValue : false;
 
     return (
-      <div className="bg-slate-700/50 rounded-lg p-4 my-4">
-        <div className="text-sm text-slate-400 mb-3 flex items-center gap-2">
+      <div className="bg-gray-50 rounded-lg p-4 my-4 border border-gray-200">
+        <div className="text-sm text-gray-500 mb-3 flex items-center gap-2">
           <RefreshCw className="w-4 h-4" />
           Transfer Preview
         </div>
@@ -537,18 +552,18 @@ export function AddTransactionModal({
         <div className="flex items-center justify-between gap-2">
           {/* From Account */}
           <div className={`flex-1 text-center p-3 rounded-lg border ${
-            fromBelowThreshold ? 'border-red-500 bg-red-500/10' : 'border-slate-600 bg-slate-800'
+            fromBelowThreshold ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'
           }`}>
-            <div className="text-xs text-slate-400">From</div>
-            <div className="font-medium text-white">{from?.name || 'Select'}</div>
+            <div className="text-xs text-gray-500">From</div>
+            <div className="font-medium text-gray-900">{from?.name || 'Select'}</div>
             {from && (
               <>
-                <div className="text-sm text-slate-400">
+                <div className="text-sm text-gray-500">
                   {formatCurrency(from.balance)}
                 </div>
-                <div className="text-xs mt-1">↓</div>
+                <div className="text-xs mt-1 text-gray-400">↓</div>
                 <div className={`text-sm font-medium ${
-                  fromBelowThreshold ? 'text-red-400' : 'text-white'
+                  fromBelowThreshold ? 'text-red-600' : 'text-gray-900'
                 }`}>
                   {formatCurrency(fromNewBalance)}
                 </div>
@@ -558,23 +573,23 @@ export function AddTransactionModal({
 
           {/* Arrow */}
           <div className="flex flex-col items-center">
-            <div className="text-lg font-bold text-blue-400">
+            <div className="text-lg font-bold text-blue-600">
               {amountValue > 0 ? formatCurrency(amountValue) : '₹0'}
             </div>
-            <ArrowRight className="w-8 h-8 text-blue-400" />
+            <ArrowRight className="w-8 h-8 text-blue-600" />
           </div>
 
           {/* To Account */}
-          <div className="flex-1 text-center p-3 rounded-lg border border-slate-600 bg-slate-800">
-            <div className="text-xs text-slate-400">To</div>
-            <div className="font-medium text-white">{to?.name || 'Select'}</div>
+          <div className="flex-1 text-center p-3 rounded-lg border border-gray-200 bg-white">
+            <div className="text-xs text-gray-500">To</div>
+            <div className="font-medium text-gray-900">{to?.name || 'Select'}</div>
             {to && (
               <>
-                <div className="text-sm text-slate-400">
+                <div className="text-sm text-gray-500">
                   {formatCurrency(to.balance)}
                 </div>
-                <div className="text-xs mt-1">↓</div>
-                <div className="text-sm font-medium text-green-400">
+                <div className="text-xs mt-1 text-gray-400">↓</div>
+                <div className="text-sm font-medium text-green-600">
                   {formatCurrency(toNewBalance)}
                 </div>
               </>
@@ -584,7 +599,7 @@ export function AddTransactionModal({
 
         {/* Warning */}
         {fromBelowThreshold && (
-          <div className="flex items-center gap-2 mt-3 text-red-400 text-sm">
+          <div className="flex items-center gap-2 mt-3 text-red-600 text-sm">
             <AlertTriangle className="w-4 h-4" />
             {from?.name} will go below threshold!
           </div>
@@ -598,7 +613,20 @@ export function AddTransactionModal({
   // ═══════════════════════════════════════════════════════════════
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* Mobile: full-screen bottom sheet sliding up from the bottom.
+          Desktop (md+): centered modal, max-w 560px.
+          twMerge resolves the positioning conflicts: later classes win. */}
+      <DialogContent className={[
+        'bg-white border-gray-200 text-gray-900 overflow-y-auto',
+        // Mobile bottom sheet
+        'left-0 right-0 bottom-0 top-auto translate-x-0 translate-y-0',
+        'w-full max-w-full rounded-t-2xl rounded-b-none max-h-[90vh]',
+        '[padding-bottom:env(safe-area-inset-bottom)]',
+        // Desktop centered modal — override mobile classes
+        'md:left-[50%] md:right-auto md:bottom-auto md:top-[50%]',
+        'md:translate-x-[-50%] md:translate-y-[-50%]',
+        'md:max-w-[560px] md:rounded-lg md:[padding-bottom:24px]',
+      ].join(' ')}>
         <DialogHeader>
           <DialogTitle>
             {editTransaction ? 'Edit Transaction' : 'Add Transaction'}
@@ -610,15 +638,15 @@ export function AddTransactionModal({
           {/* SMS PARSING SECTION */}
           {/* ═══════════════════════════════════════════════════════ */}
           {!editTransaction && (
-            <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700">
-              <label className="block text-sm text-slate-400 mb-2">
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <label className="block text-sm text-gray-600 mb-2">
                 📱 Paste Bank SMS (optional)
               </label>
               <Textarea
                 value={smsText}
                 onChange={(e) => setSmsText(e.target.value)}
                 placeholder="Paste your bank SMS here to auto-fill the form..."
-                className="bg-slate-700/50 border-slate-600 text-white resize-none min-h-[80px]"
+                className="bg-white border-gray-300 text-gray-900 resize-none min-h-[80px]"
               />
 
               {/* Parse Buttons - Only show if SMS has text */}
@@ -629,7 +657,7 @@ export function AddTransactionModal({
                     disabled={isParsingRegex || isParsingAI}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-slate-600 bg-slate-700 text-white hover:bg-slate-600"
+                    className="flex-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
                   >
                     {isParsingRegex ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -644,7 +672,7 @@ export function AddTransactionModal({
                     disabled={isParsingRegex || isParsingAI}
                     variant="outline"
                     size="sm"
-                    className="flex-1 border-purple-500/50 bg-slate-700 text-purple-300 hover:bg-purple-500/20"
+                    className="flex-1 border-purple-400 bg-purple-50 text-purple-700 hover:bg-purple-100"
                   >
                     {isParsingAI ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -660,7 +688,7 @@ export function AddTransactionModal({
               {parseSource && (
                 <div className="flex items-center gap-2 mt-2 text-xs">
                   <Check className="w-3 h-3 text-green-400" />
-                  <span className="text-slate-400">
+                  <span className="text-gray-500">
                     Parsed using {parseSource === 'ai' ? 'AI' : 'regex patterns'}
                   </span>
                 </div>
@@ -672,7 +700,7 @@ export function AddTransactionModal({
           {/* TRANSACTION TYPE */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Transaction Type
             </label>
             <div className="flex gap-2">
@@ -687,7 +715,7 @@ export function AddTransactionModal({
                         : type === 'INCOME'
                         ? 'bg-green-500 text-white'
                         : 'bg-blue-500 text-white'
-                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   {type === 'EXPENSE' && <ArrowUpRight className="w-4 h-4 inline mr-1" />}
@@ -703,11 +731,11 @@ export function AddTransactionModal({
           {/* AMOUNT */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Amount *
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">₹</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
               <Input
                 type="number"
                 value={amount}
@@ -715,7 +743,7 @@ export function AddTransactionModal({
                 placeholder="0.00"
                 step="0.01"
                 min="0"
-                className="pl-8 bg-slate-700/50 border-slate-600 text-white text-lg"
+                className="pl-8 bg-white border-gray-300 text-gray-900 text-lg"
               />
             </div>
           </div>
@@ -725,19 +753,19 @@ export function AddTransactionModal({
           {/* ═══════════════════════════════════════════════════════ */}
           {(transactionType === 'EXPENSE' || transactionType === 'TRANSFER') && (
             <div>
-              <label className="block text-sm text-slate-400 mb-2">
+              <label className="block text-sm text-gray-600 mb-2">
                 {transactionType === 'TRANSFER' ? 'From Account *' : 'Account *'}
               </label>
               <Select value={fromAccountId} onValueChange={setFromAccountId}>
-                <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
+                <SelectTrigger className="bg-white border-gray-300 text-gray-900">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectContent className="bg-white border-gray-200">
                   {accounts.map((account) => (
                     <SelectItem
                       key={account.id}
                       value={account.id!.toString()}
-                      className="text-white"
+                      className="text-gray-900"
                     >
                       {account.name}
                     </SelectItem>
@@ -761,23 +789,23 @@ export function AddTransactionModal({
                   }`}>
                     <div className="grid grid-cols-2 gap-2 text-sm">
                       <div>
-                        <div className="text-slate-400 text-xs">Current Balance</div>
-                        <div className="text-white font-medium">{formatCurrency(selectedAccount.balance)}</div>
+                        <div className="text-gray-500 text-xs">Current Balance</div>
+                        <div className="text-gray-900 font-medium">{formatCurrency(selectedAccount.balance)}</div>
                       </div>
                       <div>
-                        <div className="text-slate-400 text-xs">Threshold</div>
-                        <div className="text-slate-300">{formatCurrency(selectedAccount.thresholdValue)}</div>
+                        <div className="text-gray-500 text-xs">Threshold</div>
+                        <div className="text-gray-700">{formatCurrency(selectedAccount.thresholdValue)}</div>
                       </div>
                       <div>
-                        <div className="text-slate-400 text-xs">Safe to Spend</div>
-                        <div className={`font-medium ${safeToSpend > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        <div className="text-gray-500 text-xs">Safe to Spend</div>
+                        <div className={`font-medium ${safeToSpend > 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {formatCurrency(Math.max(0, safeToSpend))}
                         </div>
                       </div>
                       {amountValue > 0 && (
                         <div>
-                          <div className="text-slate-400 text-xs">After This Expense</div>
-                          <div className={`font-medium ${newSafeToSpend >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          <div className="text-gray-500 text-xs">After This Expense</div>
+                          <div className={`font-medium ${newSafeToSpend >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                             {formatCurrency(Math.max(0, newSafeToSpend))}
                           </div>
                         </div>
@@ -797,21 +825,21 @@ export function AddTransactionModal({
 
           {(transactionType === 'INCOME' || transactionType === 'TRANSFER') && (
             <div>
-              <label className="block text-sm text-slate-400 mb-2">
+              <label className="block text-sm text-gray-600 mb-2">
                 {transactionType === 'TRANSFER' ? 'To Account *' : 'Account *'}
               </label>
               <Select value={toAccountId} onValueChange={setToAccountId}>
-                <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
+                <SelectTrigger className="bg-white border-gray-300 text-gray-900">
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectContent className="bg-white border-gray-200">
                   {accounts
                     .filter(a => transactionType !== 'TRANSFER' || a.id?.toString() !== fromAccountId)
                     .map((account) => (
                       <SelectItem
                         key={account.id}
                         value={account.id!.toString()}
-                        className="text-white"
+                        className="text-gray-900"
                       >
                         {account.name}
                       </SelectItem>
@@ -829,7 +857,7 @@ export function AddTransactionModal({
           {/* ═══════════════════════════════════════════════════════ */}
           {transactionType !== 'TRANSFER' && (
             <div>
-              <label className="block text-sm text-slate-400 mb-2">
+              <label className="block text-sm text-gray-600 mb-2">
                 Category *
               </label>
               <CategorySelector
@@ -851,17 +879,17 @@ export function AddTransactionModal({
           {/* LINKED TRANSACTION (Only for Transfer) */}
           {/* ═══════════════════════════════════════════════════════════ */}
           {transactionType === 'TRANSFER' && (
-            <div className="bg-slate-700/30 rounded-lg p-4 border border-slate-600">
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
                   id="isLinked"
                   checked={isLinkedTransaction}
                   onChange={(e) => setIsLinkedTransaction(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-500 bg-slate-700
-                             text-purple-500 focus:ring-purple-500"
+                  className="w-4 h-4 rounded border-gray-300 bg-white
+                             text-purple-600 focus:ring-purple-500"
                 />
-                <label htmlFor="isLinked" className="text-sm text-slate-300">
+                <label htmlFor="isLinked" className="text-sm text-gray-700">
                   This is a payment for someone (create linked transaction)
                 </label>
               </div>
@@ -869,24 +897,24 @@ export function AddTransactionModal({
               {isLinkedTransaction && (
                 <div className="mt-4 pl-7 space-y-3">
                   <div>
-                    <label className="block text-sm text-slate-400 mb-2">
+                    <label className="block text-sm text-gray-600 mb-2">
                       Create receivable in *
                     </label>
                     <Select
                       value={linkedPersonAccountId}
                       onValueChange={setLinkedPersonAccountId}
                     >
-                      <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
+                      <SelectTrigger className="bg-white border-gray-300 text-gray-900">
                         <SelectValue placeholder="Select person account" />
                       </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-slate-700">
+                      <SelectContent className="bg-white border-gray-200">
                         {accounts
                           .filter(a => a.type === 'PERSON')
                           .map((account) => (
                             <SelectItem
                               key={account.id}
                               value={account.id!.toString()}
-                              className="text-white"
+                              className="text-gray-900"
                             >
                               👤 {account.name}
                             </SelectItem>
@@ -897,13 +925,13 @@ export function AddTransactionModal({
 
                   {/* Preview */}
                   {linkedPersonAccountId && (
-                    <div className="bg-slate-800 rounded-lg p-3 text-sm">
-                      <div className="text-slate-400 mb-2">Will create:</div>
-                      <div className="flex items-center gap-2 text-slate-300">
+                    <div className="bg-white border border-gray-200 rounded-lg p-3 text-sm">
+                      <div className="text-gray-500 mb-2">Will create:</div>
+                      <div className="flex items-center gap-2 text-gray-700">
                         <span className="text-blue-400">1.</span>
                         <span>Transfer from {accounts.find(a => a.id?.toString() === fromAccountId)?.name}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-slate-300 mt-1">
+                      <div className="flex items-center gap-2 text-gray-700 mt-1">
                         <span className="text-green-400">2.</span>
                         <span>Receivable in {accounts.find(a => a.id?.toString() === linkedPersonAccountId)?.name}</span>
                       </div>
@@ -918,14 +946,14 @@ export function AddTransactionModal({
           {/* DATE & TIME */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Date & Time
             </label>
             <Input
               type="datetime-local"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="bg-slate-700/50 border-slate-600 text-white"
+              className="bg-white border-gray-300 text-gray-900"
             />
           </div>
 
@@ -933,7 +961,7 @@ export function AddTransactionModal({
           {/* NOTE (OPTIONAL) with Autocomplete */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div className="relative">
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Note
             </label>
             <Input
@@ -943,12 +971,12 @@ export function AddTransactionModal({
               onFocus={() => note.trim() && noteSuggestions.length > 0 && setShowNoteSuggestions(true)}
               onBlur={() => setTimeout(() => setShowNoteSuggestions(false), 200)}
               placeholder="e.g., RS/Dinner, Office lunch, Grocery..."
-              className="bg-slate-700/50 border-slate-600 text-white"
+              className="bg-white border-gray-300 text-gray-900"
               autoComplete="off"
             />
             {/* Autocomplete dropdown */}
             {showNoteSuggestions && noteSuggestions.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                 {noteSuggestions.map((suggestion, index) => (
                   <button
                     key={index}
@@ -957,7 +985,7 @@ export function AddTransactionModal({
                       e.preventDefault();
                       selectNoteSuggestion(suggestion);
                     }}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 focus:bg-slate-700 transition-colors"
+                    className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 focus:bg-gray-100 transition-colors"
                   >
                     {suggestion}
                   </button>
@@ -970,7 +998,7 @@ export function AddTransactionModal({
           {/* DESCRIPTION (OPTIONAL) */}
           {/* ═══════════════════════════════════════════════════════ */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Description (optional)
             </label>
             <Input
@@ -978,7 +1006,7 @@ export function AddTransactionModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Additional details..."
-              className="bg-slate-700/50 border-slate-600 text-white"
+              className="bg-white border-gray-300 text-gray-900"
             />
           </div>
 
@@ -991,7 +1019,7 @@ export function AddTransactionModal({
                 <Button
                   onClick={() => { onCopy(editTransaction); onClose(); }}
                   variant="outline"
-                  className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
+                  className="flex-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
                 >
                   <Copy className="w-4 h-4 mr-2" />
                   Copy
@@ -1001,7 +1029,7 @@ export function AddTransactionModal({
                 <Button
                   onClick={() => onDelete(editTransaction)}
                   variant="outline"
-                  className="flex-1 border-red-500/50 bg-slate-700 text-red-400 hover:bg-red-500/20"
+                  className="flex-1 border-red-300 bg-red-50 text-red-600 hover:bg-red-100"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
                   Delete
@@ -1013,7 +1041,7 @@ export function AddTransactionModal({
             <Button
               onClick={onClose}
               variant="outline"
-              className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
+              className="flex-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
             >
               Cancel
             </Button>

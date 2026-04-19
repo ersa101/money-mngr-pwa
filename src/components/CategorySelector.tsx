@@ -111,13 +111,13 @@ export function CategorySelector({
         disabled={disabled}
         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-colors ${
           error
-            ? 'border-red-500 bg-red-500/10'
+            ? 'border-red-400 bg-red-50'
             : disabled
-            ? 'border-slate-700 bg-slate-800 cursor-not-allowed opacity-50'
-            : 'border-slate-600 bg-slate-700/50 hover:border-slate-500'
-        } text-white`}
+            ? 'border-gray-200 bg-gray-100 cursor-not-allowed opacity-50'
+            : 'border-gray-300 bg-white hover:border-gray-400'
+        } text-gray-900`}
       >
-        <span className={!selectedCategoryId ? 'text-slate-400' : ''}>
+        <span className={!selectedCategoryId ? 'text-gray-400' : ''}>
           {displayText}
         </span>
         <ChevronDown
@@ -126,13 +126,13 @@ export function CategorySelector({
       </button>
 
       {/* Error Message */}
-      {error && <p className="mt-1 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-[300px] overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-[300px] overflow-y-auto">
           {parentCategories.length === 0 ? (
-            <div className="p-4 text-center text-slate-400">
+            <div className="p-4 text-center text-gray-400">
               No {type.toLowerCase()} categories available
             </div>
           ) : (
@@ -148,35 +148,35 @@ export function CategorySelector({
                   <button
                     type="button"
                     onClick={() => handleParentClick(parent)}
-                    className={`w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors ${
-                      isParentSelected && !hasChildren ? 'bg-purple-500/20' : ''
+                    className={`w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors ${
+                      isParentSelected && !hasChildren ? 'bg-blue-50' : ''
                     }`}
                   >
                     <div className="flex items-center gap-2">
                       {parent.icon && <span>{parent.icon}</span>}
-                      <span className="font-medium">{parent.name}</span>
+                      <span className="font-medium text-gray-900">{parent.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {hasChildren && (
-                        <span className="text-xs text-slate-400 bg-slate-600 px-1.5 py-0.5 rounded">
+                        <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">
                           {children.length}
                         </span>
                       )}
                       {hasChildren ? (
                         isExpanded ? (
-                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
                         ) : (
-                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                          <ChevronRight className="w-4 h-4 text-gray-400" />
                         )
                       ) : isParentSelected ? (
-                        <Check className="w-4 h-4 text-purple-400" />
+                        <Check className="w-4 h-4 text-blue-500" />
                       ) : null}
                     </div>
                   </button>
 
                   {/* Child Categories (Sub-categories) */}
                   {hasChildren && isExpanded && (
-                    <div className="bg-slate-900/50">
+                    <div className="bg-gray-50/50">
                       {children.map((child) => {
                         const isChildSelected = selectedSubCategoryId === child.id
 
@@ -185,16 +185,16 @@ export function CategorySelector({
                             key={child.id}
                             type="button"
                             onClick={() => handleChildClick(parent, child)}
-                            className={`w-full flex items-center justify-between px-4 py-2 pl-10 hover:bg-slate-700 transition-colors ${
-                              isChildSelected ? 'bg-purple-500/20' : ''
+                            className={`w-full flex items-center justify-between px-4 py-2 pl-10 hover:bg-gray-50 transition-colors ${
+                              isChildSelected ? 'bg-blue-50' : ''
                             }`}
                           >
-                            <div className="flex items-center gap-2 text-slate-300">
-                              <span className="text-slate-500">├─</span>
+                            <div className="flex items-center gap-2 text-gray-700">
+                              <span className="text-gray-400">├─</span>
                               <span>{child.name}</span>
                             </div>
                             {isChildSelected && (
-                              <Check className="w-4 h-4 text-purple-400" />
+                              <Check className="w-4 h-4 text-blue-500" />
                             )}
                           </button>
                         )

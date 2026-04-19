@@ -263,7 +263,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
   }
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>

@@ -30,9 +30,8 @@ export function useSync(userId: string | null | undefined): UseSyncReturn {
   const [isOnline, setIsOnline] = useState(true)
   const cleanupRef = useRef<(() => void) | null>(null)
 
-  // Initialize network listeners and callbacks
+  // Initialize network listeners and callbacks (always, regardless of auth)
   useEffect(() => {
-    // Set up callbacks
     setSyncCallbacks({
       onStatusChange: (state) => {
         setSyncState(state)
@@ -46,25 +45,28 @@ export function useSync(userId: string | null | undefined): UseSyncReturn {
       },
     })
 
-    // Initialize network listeners
     cleanupRef.current = initNetworkListeners()
 
-    // Start background sync
-    startBackgroundSync()
-
-    // Initial pending count update
-    updatePendingCount()
-
-    // Set initial online state
     if (typeof navigator !== 'undefined') {
       setIsOnline(navigator.onLine)
     }
 
     return () => {
       cleanupRef.current?.()
-      stopBackgroundSync()
     }
   }, [])
+
+  // Start background sync only when authenticated
+  useEffect(() => {
+    if (!userId) return
+
+    updatePendingCount()
+    startBackgroundSync()
+
+    return () => {
+      stopBackgroundSync()
+    }
+  }, [userId])
 
   // Process sync queue (push local changes to cloud)
   const sync = useCallback(async () => {

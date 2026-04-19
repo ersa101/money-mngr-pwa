@@ -2,7 +2,8 @@
 
 import React, { useState, useRef } from 'react'
 import { Upload, AlertCircle, CheckCircle, Download } from 'lucide-react'
-import { parseCSV, importTransactionsFromCSV } from '@/lib/csvImport'
+import { parseCSV, importTransactionsFromCSV, PendingMissedRow } from '@/lib/csvImport'
+import { ImportPreviewModal } from '@/components/ImportPreviewModal'
 import { useDb } from '@/contexts/DbContext'
 import { ActionLogger } from '@/lib/actionLogger'
 
@@ -16,7 +17,13 @@ export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState({ current: 0, total: 0, stage: '' })
-  const [result, setResult] = useState<{ imported: number; errors: string[] } | null>(null)
+  const [result, setResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null)
+  const [previewData, setPreviewData] = useState<{
+    blindInserted: number
+    skipped: number
+    errors: string[]
+    missed: PendingMissedRow[]
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -26,47 +33,62 @@ export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
     setIsLoading(true)
     setProgress({ current: 0, total: 100, stage: 'Reading file...' })
 
-    // Log import start
     ActionLogger.csvImportStart(file.name)
 
     try {
-      // Parse CSV with progress
       setProgress({ current: 10, total: 100, stage: 'Parsing CSV...' })
       const rows = await parseCSV(file)
 
       setProgress({ current: 30, total: 100, stage: `Importing ${rows.length} transactions...` })
 
-      // Import with progress callback
       const importResult = await importTransactionsFromCSV(db, rows, (current, total) => {
         const percent = 30 + Math.floor((current / total) * 70)
         setProgress({ current: percent, total: 100, stage: `Importing ${current}/${total} transactions...` })
       })
 
       setProgress({ current: 100, total: 100, stage: 'Complete!' })
-      setResult(importResult)
 
-      // Log import result
-      if (importResult.errors.length === 0) {
-        ActionLogger.csvImportSuccess(importResult.imported, file.name)
+      if (importResult.status === 'PREVIEW_REQUIRED') {
+        // Show missed-transaction preview before closing
+        ActionLogger.csvImportSuccess(importResult.blindInserted, file.name)
+        setPreviewData({
+          blindInserted: importResult.blindInserted,
+          skipped: importResult.skipped,
+          errors: importResult.errors,
+          missed: importResult.missed,
+        })
       } else {
-        ActionLogger.csvImportError(`${importResult.errors.length} errors`, file.name)
-      }
-
-      if (onSuccess) {
-        onSuccess()
+        // COMPLETE — no overlap surprises
+        if (importResult.errors.length === 0) {
+          ActionLogger.csvImportSuccess(importResult.imported, file.name)
+        } else {
+          ActionLogger.csvImportError(`${importResult.errors.length} errors`, file.name)
+        }
+        setResult({
+          imported: importResult.imported,
+          skipped: importResult.skipped,
+          errors: importResult.errors,
+        })
+        if (onSuccess) onSuccess()
       }
     } catch (error) {
       ActionLogger.csvImportError(String(error), file.name)
-      setResult({
-        imported: 0,
-        errors: [String(error)],
-      })
+      setResult({ imported: 0, skipped: 0, errors: [String(error)] })
     } finally {
       setIsLoading(false)
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
+      if (fileInputRef.current) fileInputRef.current.value = ''
     }
+  }
+
+  const handlePreviewDone = (insertedCount: number) => {
+    if (!previewData) return
+    setResult({
+      imported: previewData.blindInserted + insertedCount,
+      skipped: previewData.skipped + (insertedCount === 0 ? previewData.missed.length : 0),
+      errors: previewData.errors,
+    })
+    setPreviewData(null)
+    if (onSuccess) onSuccess()
   }
 
   return (
@@ -181,6 +203,7 @@ export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
                     <p className="font-medium text-white">Import Complete</p>
                     <p className="text-sm text-slate-300 mt-1">
                       {result.imported} transaction{result.imported !== 1 ? 's' : ''} imported
+                      {result.skipped > 0 ? `, ${result.skipped} duplicate${result.skipped !== 1 ? 's' : ''} skipped` : ''}
                     </p>
                     {result.errors.length > 0 && (
                       <div className="mt-3 space-y-2">
@@ -206,10 +229,7 @@ export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
 
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      setResult(null)
-                      setIsOpen(false)
-                    }}
+                    onClick={() => { setResult(null); setIsOpen(false) }}
                     className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                   >
                     Done
@@ -225,6 +245,16 @@ export function CSVUploadModal({ onSuccess, trigger }: CSVUploadProps) {
             )}
           </div>
         </div>
+      )}
+
+      {/* ImportPreviewModal — shown on top when import has missed transactions */}
+      {previewData && (
+        <ImportPreviewModal
+          blindInserted={previewData.blindInserted}
+          skipped={previewData.skipped}
+          missed={previewData.missed}
+          onDone={handlePreviewDone}
+        />
       )}
     </>
   )

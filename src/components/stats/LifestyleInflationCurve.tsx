@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
@@ -148,16 +148,20 @@ export function LifestyleInflationCurve() {
 
   const hasResult = result !== null
 
-  // Load cache on first render if valid
-  if (cached && isCacheValid() && !result && !computing) {
-    loadFromCache()
-  }
+  // Load cache once when cached data arrives — must be in useEffect, never in render body
+  // (calling setState during render causes an infinite loop)
+  useEffect(() => {
+    if (cached && isCacheValid() && !result && !computing) {
+      loadFromCache()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cached])
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded p-3 text-xs">
-        <p className="text-slate-300 mb-1 font-medium">{label}</p>
+      <div className="bg-white border border-gray-200 rounded p-3 text-xs shadow-lg">
+        <p className="text-gray-700 mb-1 font-medium">{label}</p>
         {payload.map((p: any) => (
           p.name !== 'Gap+' && p.name !== 'Gap−' && (
             <p key={p.name} style={{ color: p.color }}>
@@ -170,15 +174,15 @@ export function LifestyleInflationCurve() {
   }
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-start justify-between mb-1">
         <div className="flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-emerald-400" />
-          <h3 className="text-base font-semibold text-white">Lifestyle Inflation Curve</h3>
+          <TrendingUp className="w-5 h-5 text-emerald-600" />
+          <h3 className="text-base font-semibold text-gray-900">Lifestyle Inflation Curve</h3>
         </div>
-        <span className="text-xs text-slate-500">Based on all available data</span>
+        <span className="text-xs text-gray-400">Based on all available data</span>
       </div>
-      <p className="text-xs text-slate-400 mb-4">3-month smoothed income vs expense growth over your full history</p>
+      <p className="text-xs text-gray-500 mb-4">3-month smoothed income vs expense growth over your full history</p>
 
       {!hasResult && (
         <div className="flex flex-col items-center justify-center py-12 gap-3">
@@ -190,7 +194,7 @@ export function LifestyleInflationCurve() {
             {computing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
             {computing ? 'Computing…' : '▶ Compute'}
           </button>
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {error && <p className="text-red-600 text-xs">{error}</p>}
         </div>
       )}
 
@@ -198,15 +202,15 @@ export function LifestyleInflationCurve() {
         <>
           {/* Summary stats */}
           <div className="grid grid-cols-2 gap-3 mb-5">
-            <div className="bg-slate-900 rounded-lg p-3">
-              <p className="text-xs text-slate-400">Income growth</p>
-              <p className={`text-lg font-bold ${result.incomeGrowthRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Income growth</p>
+              <p className={`text-lg font-bold ${result.incomeGrowthRate >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {result.incomeGrowthRate >= 0 ? '+' : ''}{result.incomeGrowthRate.toFixed(1)}%/yr
               </p>
             </div>
-            <div className="bg-slate-900 rounded-lg p-3">
-              <p className="text-xs text-slate-400">Expense growth</p>
-              <p className={`text-lg font-bold ${result.expenseGrowthRate <= result.incomeGrowthRate ? 'text-emerald-400' : 'text-red-400'}`}>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Expense growth</p>
+              <p className={`text-lg font-bold ${result.expenseGrowthRate <= result.incomeGrowthRate ? 'text-emerald-600' : 'text-red-600'}`}>
                 {result.expenseGrowthRate >= 0 ? '+' : ''}{result.expenseGrowthRate.toFixed(1)}%/yr
               </p>
             </div>
@@ -214,11 +218,11 @@ export function LifestyleInflationCurve() {
 
           {/* Insight label */}
           {result.expenseGrowthRate > result.incomeGrowthRate ? (
-            <div className="mb-4 px-3 py-2 bg-red-900/30 border border-red-700/40 rounded-lg text-xs text-red-300">
+            <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
               ⚠ Lifestyle inflation — expenses growing faster than income
             </div>
           ) : (
-            <div className="mb-4 px-3 py-2 bg-emerald-900/30 border border-emerald-700/40 rounded-lg text-xs text-emerald-300">
+            <div className="mb-4 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
               ✓ Healthy gap — income outpacing expenses
             </div>
           )}
@@ -227,16 +231,16 @@ export function LifestyleInflationCurve() {
             <div style={{ minWidth: Math.max(500, result.data.length * 12) }}>
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={result.data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                   <XAxis
                     dataKey="month"
-                    tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
                     tickFormatter={(v) => v.slice(2)}
                     interval={Math.floor(result.data.length / 8)}
                   />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={formatINR} width={48} />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={formatINR} width={48} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#6b7280' }} />
                   {/* Green gap (income > expense) */}
                   <Area
                     dataKey="gapPos"
@@ -263,13 +267,13 @@ export function LifestyleInflationCurve() {
           </div>
 
           <div className="mt-3 flex items-center gap-3">
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-gray-500">
               Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
             </p>
             <button
               onClick={compute}
               disabled={computing}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition"
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition"
             >
               <RefreshCw className="w-3 h-3" />
               Recompute

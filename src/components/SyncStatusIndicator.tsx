@@ -1,198 +1,80 @@
-// Sync Status Indicator Component
-// Shows sync status in the navbar with appropriate icons and colors
 'use client'
 
-import { useState } from 'react'
-import {
-  Cloud,
-  CloudOff,
-  Check,
-  RefreshCw,
-  AlertCircle,
-  Loader2,
-} from 'lucide-react'
-import { type SyncState } from '@/lib/sync'
+// SyncStatusIndicator — Phase 1.5
+// Minimal colored-dot indicator wired to syncService state.
+// 🟢 synced  🟡 pending  🔴 offline/error
 
-interface SyncStatusIndicatorProps {
-  syncState: SyncState
-  isOnline: boolean
-  onRetry?: () => void
-  onForceSync?: () => void
+import { useState, useEffect } from 'react'
+import {
+  getSyncStatus,
+  getLastSyncedAt,
+  onSyncStatusChange,
+} from '@/lib/syncService'
+
+function formatTimeAgo(ts: number): string {
+  const diffS = Math.floor((Date.now() - ts) / 1000)
+  if (diffS < 60) return 'just now'
+  const diffM = Math.floor(diffS / 60)
+  if (diffM < 60) return `${diffM}m ago`
+  const diffH = Math.floor(diffM / 60)
+  if (diffH < 24) return `${diffH}h ago`
+  return `${Math.floor(diffH / 24)}d ago`
 }
 
-export function SyncStatusIndicator({
-  syncState,
-  isOnline,
-  onRetry,
-  onForceSync,
-}: SyncStatusIndicatorProps) {
-  const [showDetails, setShowDetails] = useState(false)
+export function SyncStatusIndicator() {
+  const [status, setStatus] = useState(getSyncStatus())
+  const [lastSync, setLastSync] = useState(getLastSyncedAt())
+  const [open, setOpen] = useState(false)
 
-  const getStatusDisplay = () => {
-    if (!isOnline || syncState.status === 'offline') {
-      return {
-        icon: CloudOff,
-        color: 'text-yellow-500',
-        bgColor: 'bg-yellow-500/10',
-        label: 'Offline',
-        description: syncState.pendingCount > 0
-          ? `${syncState.pendingCount} change${syncState.pendingCount > 1 ? 's' : ''} pending`
-          : 'Changes will sync when online',
-      }
-    }
+  useEffect(() => {
+    return onSyncStatusChange(() => {
+      setStatus(getSyncStatus())
+      setLastSync(getLastSyncedAt())
+    })
+  }, [])
 
-    switch (syncState.status) {
-      case 'syncing':
-        return {
-          icon: Loader2,
-          color: 'text-blue-500',
-          bgColor: 'bg-blue-500/10',
-          label: 'Syncing',
-          description: 'Syncing your data...',
-          animate: true,
-        }
-      case 'error':
-        return {
-          icon: AlertCircle,
-          color: 'text-red-500',
-          bgColor: 'bg-red-500/10',
-          label: 'Sync Error',
-          description: syncState.error || 'Failed to sync. Tap to retry.',
-        }
-      case 'idle':
-      default:
-        if (syncState.pendingCount > 0) {
-          return {
-            icon: RefreshCw,
-            color: 'text-yellow-500',
-            bgColor: 'bg-yellow-500/10',
-            label: 'Pending',
-            description: `${syncState.pendingCount} change${syncState.pendingCount > 1 ? 's' : ''} to sync`,
-          }
-        }
-        return {
-          icon: Check,
-          color: 'text-green-500',
-          bgColor: 'bg-green-500/10',
-          label: 'Synced',
-          description: syncState.lastSyncedAt
-            ? `Last synced ${formatTimeAgo(syncState.lastSyncedAt)}`
-            : 'All changes synced',
-        }
-    }
-  }
+  const dotColor =
+    status === 'synced'
+      ? 'bg-green-500'
+      : status === 'pending'
+      ? 'bg-yellow-500 animate-pulse'
+      : 'bg-red-500'
 
-  const status = getStatusDisplay()
-  const Icon = status.icon
-
-  const handleClick = () => {
-    if (syncState.status === 'error' && onRetry) {
-      onRetry()
-    } else {
-      setShowDetails(!showDetails)
-    }
-  }
+  const label =
+    status === 'synced' ? 'Synced' : status === 'pending' ? 'Pending' : 'Offline'
 
   return (
     <div className="relative">
-      {/* Main indicator button */}
       <button
-        onClick={handleClick}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all ${status.bgColor} hover:opacity-80`}
-        title={status.description}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-700/50 transition-colors"
+        title={`Sync: ${label}`}
       >
-        <Icon
-          className={`w-4 h-4 ${status.color} ${status.animate ? 'animate-spin' : ''}`}
-        />
-        <span className={`text-xs font-medium ${status.color} hidden sm:inline`}>
-          {status.label}
-        </span>
-        {syncState.pendingCount > 0 && syncState.status !== 'syncing' && (
-          <span className="flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-yellow-500 rounded-full">
-            {syncState.pendingCount}
-          </span>
-        )}
+        <span className={`w-3 h-3 rounded-full ${dotColor}`} />
       </button>
 
-      {/* Dropdown details */}
-      {showDetails && (
-        <div className="absolute right-0 z-50 w-64 p-4 mt-2 bg-slate-800 border border-slate-700 rounded-lg shadow-xl">
-          <div className="flex items-start gap-3">
-            <div className={`p-2 rounded-full ${status.bgColor}`}>
-              <Icon className={`w-5 h-5 ${status.color}`} />
-            </div>
-            <div className="flex-1">
-              <h4 className="font-medium text-white">{status.label}</h4>
-              <p className="text-sm text-slate-400 mt-1">{status.description}</p>
+      {open && (
+        <>
+          {/* Click-away overlay */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
 
-              {syncState.lastSyncedAt && (
-                <p className="text-xs text-slate-500 mt-2">
-                  Last synced: {formatTimeAgo(syncState.lastSyncedAt)}
-                </p>
-              )}
-            </div>
+          {/* Popover */}
+          <div className="absolute right-0 top-full mt-2 w-48 p-3 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
+            <button
+              className="absolute top-2 right-2 text-slate-400 hover:text-white text-sm leading-none"
+              onClick={() => setOpen(false)}
+            >
+              ×
+            </button>
+            <p className="text-sm font-medium text-white">{label}</p>
+            <p className="text-xs text-slate-400 mt-1">
+              {lastSync ? `Last synced ${formatTimeAgo(lastSync)}` : 'Not yet synced'}
+            </p>
           </div>
-
-          {/* Action buttons */}
-          <div className="flex gap-2 mt-4">
-            {syncState.status === 'error' && onRetry && (
-              <button
-                onClick={onRetry}
-                className="flex-1 px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Retry
-              </button>
-            )}
-            {onForceSync && isOnline && (
-              <button
-                onClick={() => {
-                  setShowDetails(false)
-                  onForceSync()
-                }}
-                className="flex-1 px-3 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Force Sync
-              </button>
-            )}
-          </div>
-
-          {/* Close on click outside */}
-          <button
-            className="absolute top-2 right-2 p-1 text-slate-400 hover:text-white"
-            onClick={() => setShowDetails(false)}
-          >
-            &times;
-          </button>
-        </div>
-      )}
-
-      {/* Click outside overlay */}
-      {showDetails && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowDetails(false)}
-        />
+        </>
       )}
     </div>
   )
-}
-
-// Helper function to format time ago
-function formatTimeAgo(isoString: string): string {
-  const date = new Date(isoString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSeconds = Math.floor(diffMs / 1000)
-  const diffMinutes = Math.floor(diffSeconds / 60)
-  const diffHours = Math.floor(diffMinutes / 60)
-  const diffDays = Math.floor(diffHours / 24)
-
-  if (diffSeconds < 60) return 'just now'
-  if (diffMinutes < 60) return `${diffMinutes}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-
-  return date.toLocaleDateString()
 }
 
 export default SyncStatusIndicator

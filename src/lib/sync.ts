@@ -39,7 +39,7 @@ export interface SyncCallbacks {
 
 const SYNC_DEBOUNCE_MS = 2000
 const MAX_RETRY_COUNT = 3
-const SYNC_INTERVAL_MS = 30000 // 30 seconds
+const SYNC_INTERVAL_MS = 60000 // 60 seconds
 
 // ============= State =============
 

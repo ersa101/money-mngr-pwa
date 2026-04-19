@@ -96,6 +96,13 @@ interface BackupData {
   categories: any[];
   transactions: any[];
   filterPresets: any[];
+  budgets: any[];
+  goals: any[];
+  lifeEvents: any[];
+  feedbackLog: any[];
+  appSettings: any[];
+  computedInsights: any[];
+  categoryBuckets: any[];
 }
 
 const SHEETS_CONFIG = [
@@ -114,6 +121,34 @@ const SHEETS_CONFIG = [
   {
     name: 'filterPresets',
     headers: ['userId', 'id', 'name', 'searchText', 'accountId', 'transactionType', 'categoryId', 'subCategoryId', 'dateOffsetType', 'dateOffsetStart', 'dateOffsetEnd', 'amountMin', 'amountMax', 'createdAt'],
+  },
+  {
+    name: 'budgets',
+    headers: ['userId', 'id', 'categoryId', 'categoryName', 'monthlyLimit', 'createdAt', 'updatedAt'],
+  },
+  {
+    name: 'goals',
+    headers: ['userId', 'id', 'name', 'targetAmount', 'currentAmount', 'suggestedByAI', 'createdAt', 'status'],
+  },
+  {
+    name: 'lifeEvents',
+    headers: ['userId', 'id', 'detectedMonth', 'eventType', 'aiSummary', 'confirmedByUser', 'createdAt'],
+  },
+  {
+    name: 'appSettings',
+    headers: ['userId', 'key', 'value'],
+  },
+  {
+    name: 'categoryBuckets',
+    headers: ['userId', 'id', 'categoryId', 'categoryName', 'bucketName'],
+  },
+  {
+    name: 'feedbackLog',
+    headers: ['userId', 'id', 'timestamp', 'featureId', 'insightType', 'insightSummary', 'userResponse', 'userReason', 'categoryContext', 'subcategoryContext', 'monthYear', 'syncedToSheet'],
+  },
+  {
+    name: 'computedInsights',
+    headers: ['userId', 'id', 'key', 'value', 'computedAt', 'version'],
   },
 ] as const;
 
@@ -156,6 +191,29 @@ const DISPLAY_HEADERS: Record<string, string> = {
   dateOffsetEnd:       'Date Offset End',
   amountMin:           'Amount Min',
   amountMax:           'Amount Max',
+  monthlyLimit:        'Monthly Limit',
+  targetAmount:        'Target Amount',
+  currentAmount:       'Current Amount',
+  suggestedByAI:       'Suggested By AI',
+  detectedMonth:       'Detected Month',
+  eventType:           'Event Type',
+  aiSummary:           'AI Summary',
+  confirmedByUser:     'Confirmed By User',
+  timestamp:           'Timestamp',
+  featureId:           'Feature ID',
+  insightType:         'Insight Type',
+  insightSummary:      'Insight Summary',
+  userResponse:        'User Response',
+  userReason:          'User Reason',
+  categoryContext:     'Category Context',
+  subcategoryContext:  'Subcategory Context',
+  monthYear:           'Month Year',
+  syncedToSheet:       'Synced To Sheet',
+  key:                 'Key',
+  value:               'Value',
+  computedAt:          'Computed At',
+  version:             'Version',
+  bucketName:          'Bucket Name',
 };
 
 /** Write human-readable column labels to row 1 of a sheet. */
@@ -242,7 +300,7 @@ function deserializeRow(row: string[], headers: readonly string[]): Record<strin
 
     if (value === 'TRUE') value = true;
     else if (value === 'FALSE') value = false;
-    else if (['balance', 'amount', 'thresholdValue', 'sortOrder'].includes(header)) {
+    else if (['balance', 'amount', 'thresholdValue', 'sortOrder', 'monthlyLimit', 'targetAmount', 'currentAmount', 'version'].includes(header)) {
       value = parseFloat(value) || 0;
     } else if (['amountMin', 'amountMax'].includes(header)) {
       value = value ? parseFloat(value) : undefined;
@@ -307,7 +365,11 @@ export async function backupToSheets(data: BackupData, userId: string): Promise<
 export async function restoreFromSheets(
   userIdCandidates: string[]
 ): Promise<BackupData & { _diag: Record<string, any> }> {
-  const result: BackupData = { accounts: [], categories: [], transactions: [], filterPresets: [] };
+  const result: BackupData = {
+    accounts: [], categories: [], transactions: [], filterPresets: [],
+    budgets: [], goals: [], lifeEvents: [], feedbackLog: [],
+    appSettings: [], computedInsights: [], categoryBuckets: [],
+  };
   const diag: Record<string, any> = { userIdCandidates, sheets: {} };
 
   let stage = 'init';
@@ -392,8 +454,150 @@ export async function appendFeedbackRow(row: string[]): Promise<void> {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// SYNC — per-user tabs named by Google email (Phase 1.5)
+// Transactions: tab named exactly as user email
+// Accounts:     tab named "[email]_accounts"
+// Categories:   tab named "[email]_categories"
+// ═══════════════════════════════════════════════════════════════
+
+const SYNC_TX_HEADERS = [
+  'id', 'transactionType', 'amount', 'categoryId', 'subCategoryId',
+  'fromAccountId', 'toAccountId', 'date', 'description', 'updatedAt',
+  'notes', 'status', 'source', 'currency', 'linkedTransactionId', 'createdAt',
+] as const;
+
+const SYNC_ACCT_HEADERS = [
+  'id', 'name', 'type', 'balance', 'thresholdValue',
+  'color', 'icon', 'group', 'includeInNetWorth', 'isLiability',
+  'updatedAt', 'createdAt',
+] as const;
+
+const SYNC_CAT_HEADERS = [
+  'id', 'name', 'type', 'parentId', 'icon', 'color', 'sortOrder',
+  'updatedAt', 'createdAt',
+] as const;
+
+/** Serialize a sync record to a row, converting numbers/booleans to strings. */
+function serializeSyncRow(item: any, headers: readonly string[]): string[] {
+  return headers.map((h) => {
+    const v = item[h];
+    if (v === undefined || v === null) return '';
+    if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+    return String(v);
+  });
+}
+
+/** Deserialize a sync row back to a plain object. */
+function deserializeSyncRow(
+  row: string[],
+  headers: readonly string[],
+): Record<string, any> {
+  const obj: Record<string, any> = {};
+  headers.forEach((h, i) => {
+    let v: any = row[i] ?? '';
+    if (v === '') { obj[h] = undefined; return; }
+    if (v === 'TRUE') v = true;
+    else if (v === 'FALSE') v = false;
+    else if (['id', 'categoryId', 'subCategoryId', 'fromAccountId', 'toAccountId',
+              'linkedTransactionId', 'parentId', 'sortOrder'].includes(h)) {
+      v = v ? parseInt(v, 10) : undefined;
+      if (isNaN(v as number)) v = undefined;
+    } else if (['amount', 'balance', 'thresholdValue'].includes(h)) {
+      v = parseFloat(v) || 0;
+    } else if (h === 'updatedAt') {
+      // stored as unix ms number string
+      const n = parseInt(v, 10);
+      v = isNaN(n) ? undefined : n;
+    }
+    obj[h] = v;
+  });
+  return obj;
+}
+
+export interface SyncData {
+  transactions: any[];
+  accounts: any[];
+  categories: any[];
+}
+
+/** Write the full user dataset to their named sheet tabs (overwrites previous data). */
+export async function pushSyncData(email: string, data: SyncData): Promise<void> {
+  const tabs = [
+    { name: email,                headers: SYNC_TX_HEADERS,   rows: data.transactions },
+    { name: `${email}_accounts`,  headers: SYNC_ACCT_HEADERS, rows: data.accounts },
+    { name: `${email}_categories`,headers: SYNC_CAT_HEADERS,  rows: data.categories },
+  ];
+
+  for (const tab of tabs) {
+    // Write header row
+    try {
+      await getSheetsClient().spreadsheets.values.update({
+        spreadsheetId: getSpreadsheetId(),
+        range: `${tab.name}!A1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [tab.headers as unknown as string[]] },
+      });
+    } catch (e: any) {
+      if (e.message?.includes('Unable to parse range')) {
+        throw new Error(
+          `Sheet tab "${tab.name}" does not exist. Create it in your Google Spreadsheet first.`,
+        );
+      }
+      throw e;
+    }
+
+    // Clear existing data rows then write fresh
+    try {
+      await getSheetsClient().spreadsheets.values.clear({
+        spreadsheetId: getSpreadsheetId(),
+        range: `${tab.name}!A2:Z`,
+      });
+    } catch (_) { /* ignore if empty */ }
+
+    if (tab.rows.length === 0) continue;
+
+    await getSheetsClient().spreadsheets.values.append({
+      spreadsheetId: getSpreadsheetId(),
+      range: `${tab.name}!A2`,
+      valueInputOption: 'RAW',
+      requestBody: { values: tab.rows.map((r) => serializeSyncRow(r, tab.headers)) },
+    });
+  }
+}
+
+/** Read the user's named sheet tabs and return typed arrays. */
+export async function pullSyncData(email: string): Promise<SyncData> {
+  const readTab = async (name: string): Promise<string[][]> => {
+    try {
+      const res = await getSheetsClient().spreadsheets.values.get({
+        spreadsheetId: getSpreadsheetId(),
+        range: `${name}!A2:Z`,
+      });
+      return (res.data.values || []) as string[][];
+    } catch (e: any) {
+      if (e.message?.includes('Unable to parse range')) return [];
+      throw e;
+    }
+  };
+
+  const [txRows, acctRows, catRows] = await Promise.all([
+    readTab(email),
+    readTab(`${email}_accounts`),
+    readTab(`${email}_categories`),
+  ]);
+
+  return {
+    transactions: txRows.map((r) => deserializeSyncRow(r, SYNC_TX_HEADERS)),
+    accounts:     acctRows.map((r) => deserializeSyncRow(r, SYNC_ACCT_HEADERS)),
+    categories:   catRows.map((r) => deserializeSyncRow(r, SYNC_CAT_HEADERS)),
+  };
+}
+
 export const sheetsClient = {
   backupToSheets,
   restoreFromSheets,
   appendFeedbackRow,
+  pushSyncData,
+  pullSyncData,
 };

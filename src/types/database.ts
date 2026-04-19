@@ -81,6 +81,7 @@ export interface Transaction {
   linkedTransactionId?: number;
   csvCategory?: string;
   csvSubcategory?: string;
+  sourceHash?: string;  // SHA-256 (16 hex chars) of: isoDate|paise|accountName|transactionType — dedup key
   createdAt?: string;
   updatedAt?: number;
 }

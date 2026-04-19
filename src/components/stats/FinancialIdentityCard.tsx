@@ -157,7 +157,7 @@ export function FinancialIdentityCard() {
       // Dynamic import to keep bundle lean
       const html2canvas = (await import('html2canvas')).default
       const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: '#1e293b',
+        backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
       })
@@ -174,23 +174,23 @@ export function FinancialIdentityCard() {
 
   if (!stats) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 animate-pulse h-64" />
+      <div className="bg-white border border-gray-200 rounded-xl p-5 animate-pulse h-64" />
     )
   }
 
   const trendDelta = stats.savingsRate - stats.lastYearSavingsRate
   const TrendIcon = trendDelta > 0 ? TrendingUp : trendDelta < 0 ? TrendingDown : Minus
-  const trendColor = trendDelta > 0 ? 'text-emerald-400' : trendDelta < 0 ? 'text-red-400' : 'text-slate-400'
+  const trendColor = trendDelta > 0 ? 'text-emerald-600' : trendDelta < 0 ? 'text-red-600' : 'text-gray-500'
   const trendLabel = trendDelta > 0 ? 'Improving' : trendDelta < 0 ? 'Declining' : 'Stable'
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-start justify-between mb-4">
-        <h3 className="text-base font-semibold text-white">Financial Identity Card</h3>
+        <h3 className="text-base font-semibold text-gray-900">Financial Identity Card</h3>
         <button
           onClick={handleShare}
           disabled={sharing}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs text-slate-300 transition disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs text-gray-600 transition disabled:opacity-50"
         >
           <Camera className="w-3.5 h-3.5" />
           {sharing ? 'Saving…' : 'Share'}
@@ -198,20 +198,20 @@ export function FinancialIdentityCard() {
       </div>
 
       {/* The shareable card — amounts hidden in share image, only percentages shown */}
-      <div ref={cardRef} className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+      <div ref={cardRef} className="bg-gray-50 border border-gray-200 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-xs font-bold tracking-widest text-slate-400 uppercase">Your Financial Identity</p>
-          <p className="text-xs text-slate-500">{stats.yearLabel}</p>
+          <p className="text-xs font-bold tracking-widest text-gray-500 uppercase">Your Financial Identity</p>
+          <p className="text-xs text-gray-400">{stats.yearLabel}</p>
         </div>
 
         {/* Spend summary — hidden in share */}
         <div className="mb-5 share-hide">
-          <p className="text-2xl font-bold text-white">{formatINR(Math.round(stats.totalExpense))}</p>
-          <p className="text-xs text-slate-400 mt-0.5">spent · {formatINR(Math.round(stats.dailySpend))} per day</p>
+          <p className="text-2xl font-bold text-gray-900">{formatINR(Math.round(stats.totalExpense))}</p>
+          <p className="text-xs text-gray-500 mt-0.5">spent · {formatINR(Math.round(stats.dailySpend))} per day</p>
         </div>
 
         {/* Where money went — percentages only (safe to share) */}
-        <p className="text-xs text-slate-400 mb-3 font-medium">Where your money went:</p>
+        <p className="text-xs text-gray-500 mb-3 font-medium">Where your money went:</p>
         <div className="space-y-2 mb-5">
           {stats.bucketStats
             .filter((b) => b.pct > 0)
@@ -221,10 +221,10 @@ export function FinancialIdentityCard() {
                 <span className="text-base w-6 text-center">{b.emoji}</span>
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-xs text-slate-300">{b.label}</span>
-                    <span className="text-xs font-semibold text-white">{b.pct}%</span>
+                    <span className="text-xs text-gray-700">{b.label}</span>
+                    <span className="text-xs font-semibold text-gray-900">{b.pct}%</span>
                   </div>
-                  <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                  <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-indigo-500 rounded-full"
                       style={{ width: `${b.pct}%` }}
@@ -236,12 +236,12 @@ export function FinancialIdentityCard() {
         </div>
 
         {/* Savings rate */}
-        <div className="border-t border-slate-700 pt-4">
+        <div className="border-t border-gray-200 pt-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-slate-400">Savings rate</p>
-              <p className="text-xl font-bold text-white">{stats.savingsRate.toFixed(1)}%</p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-gray-500">Savings rate</p>
+              <p className="text-xl font-bold text-gray-900">{stats.savingsRate.toFixed(1)}%</p>
+              <p className="text-xs text-gray-400">
                 Last year: {stats.lastYearSavingsRate.toFixed(1)}%
               </p>
             </div>

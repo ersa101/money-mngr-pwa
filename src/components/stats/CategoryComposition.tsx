@@ -101,7 +101,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
 
   if (categoryData.length === 0) {
     return (
-      <div className="bg-card rounded-lg border border-border p-6 text-center py-8 text-muted-foreground">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 text-center py-8 text-muted-foreground">
         No {(type ?? transactionType).toLowerCase()} data for this period
       </div>
     )
@@ -110,7 +110,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
   const total = categoryData.reduce((sum, item) => sum + item.value, 0)
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold">
           {type === 'EXPENSE' ? 'Expense' : type === 'INCOME' ? 'Income' : 'Category'} Composition
@@ -148,7 +148,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
             cx="50%"
             cy="50%"
             labelLine={false}
-            label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
+            label={({ percent }) => percent >= 0.03 ? `${(percent * 100).toFixed(0)}%` : ''}
             outerRadius={100}
             fill="#8884d8"
             dataKey="value"

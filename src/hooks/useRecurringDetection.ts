@@ -62,6 +62,7 @@ export function useRecurringDetection(): RecurringAlert[] {
       const daysSince =
         (now.getTime() - new Date(latest.date).getTime()) / (1000 * 60 * 60 * 24);
 
+      if (daysSince > 90) return
       if (daysSince >= 20) {
         const avgAmount = txns.reduce((s, t) => s + t.amount, 0) / txns.length;
         alerts.push({

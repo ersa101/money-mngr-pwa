@@ -16,12 +16,21 @@ export function useBackup() {
     toast.loading('Starting backup...');
 
     try {
-      const accounts = await db.accounts.toArray();
-      const categories = await db.categories.toArray();
-      const transactions = await db.transactions.toArray();
-      const filterPresets = await db.filterPresets.toArray();
+      const [accounts, categories, transactions, filterPresets, budgets, goals, lifeEvents, feedbackLog, appSettings, computedInsights, categoryBuckets] = await Promise.all([
+        db.accounts.toArray(),
+        db.categories.toArray(),
+        db.transactions.toArray(),
+        db.filterPresets.toArray(),
+        db.budgets.toArray(),
+        db.goals.toArray(),
+        db.lifeEvents.toArray(),
+        db.feedbackLog.toArray(),
+        db.appSettings.toArray(),
+        db.computedInsights.toArray(),
+        db.categoryBuckets.toArray(),
+      ]);
 
-      const payload = JSON.stringify({ accounts, categories, transactions, filterPresets });
+      const payload = JSON.stringify({ accounts, categories, transactions, filterPresets, budgets, goals, lifeEvents, feedbackLog, appSettings, computedInsights, categoryBuckets });
 
       // Gzip-compress to stay under Vercel's 4.5 MB serverless payload limit.
       let body: BodyInit = payload;
@@ -83,24 +92,25 @@ export function useBackup() {
         throw new Error('No backup data found for your account in Google Sheets. Backup first or check your account.');
       }
 
-      await db.transaction('rw', db.accounts, db.categories, db.transactions, db.filterPresets, async () => {
-        await db.accounts.clear();
-        await db.categories.clear();
-        await db.transactions.clear();
-        await db.filterPresets.clear();
-
-        if (result.data?.accounts?.length) {
-          await db.accounts.bulkAdd(result.data.accounts);
-        }
-        if (result.data?.categories?.length) {
-          await db.categories.bulkAdd(result.data.categories);
-        }
-        if (result.data?.transactions?.length) {
-          await db.transactions.bulkAdd(result.data.transactions);
-        }
-        if (result.data?.filterPresets?.length) {
-          await db.filterPresets.bulkAdd(result.data.filterPresets);
-        }
+      const d = result.data;
+      await db.transaction('rw', [
+        db.accounts, db.categories, db.transactions, db.filterPresets,
+        db.budgets, db.goals, db.categoryBuckets, db.appSettings,
+        db.lifeEvents, db.feedbackLog, db.computedInsights,
+      ], async () => {
+        // Replace tables: clear then bulkPut
+        await db.accounts.clear();      if (d?.accounts?.length)      await db.accounts.bulkPut(d.accounts);
+        await db.categories.clear();    if (d?.categories?.length)    await db.categories.bulkPut(d.categories);
+        await db.transactions.clear();  if (d?.transactions?.length)  await db.transactions.bulkPut(d.transactions);
+        await db.filterPresets.clear(); if (d?.filterPresets?.length) await db.filterPresets.bulkPut(d.filterPresets);
+        await db.budgets.clear();       if (d?.budgets?.length)       await db.budgets.bulkPut(d.budgets);
+        await db.goals.clear();         if (d?.goals?.length)         await db.goals.bulkPut(d.goals);
+        await db.categoryBuckets.clear();if (d?.categoryBuckets?.length) await db.categoryBuckets.bulkPut(d.categoryBuckets);
+        await db.appSettings.clear();   if (d?.appSettings?.length)   await db.appSettings.bulkPut(d.appSettings);
+        // Append tables: bulkPut only (never clear — preserve accumulated history)
+        if (d?.lifeEvents?.length)      await db.lifeEvents.bulkPut(d.lifeEvents);
+        if (d?.feedbackLog?.length)     await db.feedbackLog.bulkPut(d.feedbackLog);
+        if (d?.computedInsights?.length)await db.computedInsights.bulkPut(d.computedInsights);
       });
 
       toast.dismiss();

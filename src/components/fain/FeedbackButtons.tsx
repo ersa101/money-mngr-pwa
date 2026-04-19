@@ -10,6 +10,7 @@ interface FeedbackButtonsProps {
   insightSummary: string;
   categoryContext?: string;
   subcategoryContext?: string;
+  onNegativeFeedback?: () => void;
 }
 
 export function FeedbackButtons({
@@ -18,6 +19,7 @@ export function FeedbackButtons({
   insightSummary,
   categoryContext,
   subcategoryContext,
+  onNegativeFeedback,
 }: FeedbackButtonsProps) {
   const db = useDb();
   const [voted, setVoted] = useState<'POSITIVE' | 'NEGATIVE' | null>(null);
@@ -59,7 +61,7 @@ export function FeedbackButtons({
   };
 
   if (saved) {
-    return <span className="text-xs text-green-400">Saved ✓</span>;
+    return <span className="text-xs text-green-600">Saved ✓</span>;
   }
 
   if (voted) return null;
@@ -69,14 +71,14 @@ export function FeedbackButtons({
       <div className="flex items-center gap-2">
         <button
           onClick={() => { setVoted('POSITIVE'); submit('POSITIVE'); }}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-green-400 hover:bg-green-400/10 transition"
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-green-600 hover:bg-green-50 transition"
           title="Accurate"
         >
           <ThumbsUp size={14} /> Accurate
         </button>
         <button
           onClick={() => { setVoted('NEGATIVE'); setShowReason(true); }}
-          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-red-400 hover:bg-red-400/10 transition"
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 transition"
           title="Not accurate"
         >
           <ThumbsDown size={14} /> Not accurate
@@ -87,15 +89,15 @@ export function FeedbackButtons({
         <div className="flex gap-2 items-center">
           <input
             type="text"
-            maxLength={150}
+            maxLength={100}
             placeholder="What was wrong? (optional)"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="flex-1 text-xs bg-slate-800 border border-slate-600 rounded-lg px-2 py-1.5 text-slate-200 placeholder-slate-500 outline-none focus:border-slate-500"
+            className="flex-1 text-xs bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-gray-800 placeholder-gray-400 outline-none focus:border-gray-400"
             autoFocus
           />
           <button
-            onClick={() => submit('NEGATIVE', reason)}
+            onClick={() => { submit('NEGATIVE', reason); onNegativeFeedback?.(); }}
             className="text-xs px-3 py-1.5 bg-red-600/80 hover:bg-red-600 rounded-lg text-white transition"
           >
             Send

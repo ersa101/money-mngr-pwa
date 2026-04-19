@@ -66,6 +66,11 @@ export class MySubClassedDB extends Dexie {
       computedInsights: '++id, &key, computedAt',
       categoryBuckets: '++id, categoryId, bucketName',
     });
+
+    // v8: BUG-015 fix — sourceHash index for CSV deduplication
+    this.version(8).stores({
+      transactions: '++id, date, transactionType, fromAccountId, toAccountId, categoryId, status, linkedTransactionId, updatedAt, sourceHash',
+    });
   }
 }
 

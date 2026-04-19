@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { Navigation } from "@/components/Navigation";
+import { BottomTabNavigation } from "@/components/BottomTabNavigation";
+import { SyncHeader } from "@/components/SyncHeader";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthProvider } from "@/components/AuthProvider";
 import { DbProvider } from "@/contexts/DbContext";
 import { AppContent } from "@/components/AppContent";
+import { SidebarProvider } from "@/contexts/SidebarContext";
 import "./globals.css";
 import DevInstanceCheck from '@/components/DevInstanceCheck'
 import { BackupReminderHandler } from "@/components/settings/BackupReminderHandler";
@@ -59,15 +62,19 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
+          <SidebarProvider>
           <DbProvider>
             <Toaster position="top-center" reverseOrder={false} />
             <BackupReminderHandler />
-            <Navigation />
+            <SyncHeader />
+            <Sidebar />
             <AppContent>
               {children}
             </AppContent>
+            <BottomTabNavigation />
             <DevInstanceCheck />
           </DbProvider>
+          </SidebarProvider>
         </AuthProvider>
       </body>
     </html>
