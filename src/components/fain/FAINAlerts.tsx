@@ -38,11 +38,14 @@ export function FAINAlerts() {
   // A-4/5/6 AI alerts
   const [leadLagResult, setLeadLagResult] = useState<string | null>(null);
   const [leadLagLoading, setLeadLagLoading] = useState(false);
+  const [leadLagError, setLeadLagError] = useState(false);
   const [savingsResult, setSavingsResult] = useState<string | null>(null);
   const [savingsLoading, setSavingsLoading] = useState(false);
+  const [savingsError, setSavingsError] = useState(false);
   const [savingsDismissed, setSavingsDismissed] = useState(false);
   const [lifeEventResult, setLifeEventResult] = useState<string | null>(null);
   const [lifeEventLoading, setLifeEventLoading] = useState(false);
+  const [lifeEventError, setLifeEventError] = useState(false);
   // A-6: confirm state
   const [lifeEventConfirming, setLifeEventConfirming] = useState(false);
   const [lifeEventText, setLifeEventText] = useState('');
@@ -113,11 +116,13 @@ export function FAINAlerts() {
   const runLeadLag = useCallback(async () => {
     if (!fainContext) return;
     setLeadLagLoading(true);
+    setLeadLagError(false);
     try {
       const prompt = `Based on the user's category spend by month pattern below, identify 2-3 upcoming predictions: "Based on your pattern, [category] spend typically rises in [upcoming month]. Last year it was ₹X. Heads up." Only show predictions for the next 2 months.\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, aiKeys);
       setLeadLagResult(text);
     } catch (e: any) {
+      setLeadLagError(true);
       setLeadLagResult('Analysis failed. Check your API key in Settings or try again.');
     } finally {
       setLeadLagLoading(false);
@@ -127,11 +132,13 @@ export function FAINAlerts() {
   const runSavingsGoal = useCallback(async () => {
     if (!fainContext) return;
     setSavingsLoading(true);
+    setSavingsError(false);
     try {
       const prompt = `Calculate the user's average monthly surplus (income - expense) over the last 6 months. Then suggest 2 savings goals based on their spending patterns. Format: "You typically have ₹X surplus monthly. Here are 2 suggested savings goals: [Goal 1 with target amount], [Goal 2 with target amount]".\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, aiKeys);
       setSavingsResult(text);
     } catch (e: any) {
+      setSavingsError(true);
       setSavingsResult('Analysis failed. Check your API key in Settings or try again.');
     } finally {
       setSavingsLoading(false);
@@ -141,11 +148,13 @@ export function FAINAlerts() {
   const runLifeEvent = useCallback(async () => {
     if (!fainContext) return;
     setLifeEventLoading(true);
+    setLifeEventError(false);
     try {
       const prompt = `Look for sudden new categories or >200% spend spike sustained for 3+ months in the user's data. Format: "We noticed a significant change in your spending around [month/year]. This might indicate [event type: travel, relocation, health event, celebration]. Does this match a life event?" Show max 2 observations.\n\nContext: ${JSON.stringify(fainContext.monthlyTotals)}`;
       const text = await callAlertsAPI(prompt, aiKeys);
       setLifeEventResult(text);
     } catch (e: any) {
+      setLifeEventError(true);
       setLifeEventResult('Analysis failed. Check your API key in Settings or try again.');
     } finally {
       setLifeEventLoading(false);
@@ -293,6 +302,7 @@ export function FAINAlerts() {
         status={leadLagResult ? 'WATCH' : 'NORMAL'}
         onRefresh={runLeadLag}
         loading={leadLagLoading}
+        showFeedback={!leadLagError}
       />
 
       {/* A-5: Savings Goal */}
@@ -305,6 +315,7 @@ export function FAINAlerts() {
           status="NORMAL"
           onRefresh={runSavingsGoal}
           loading={savingsLoading}
+          showFeedback={!savingsError}
         >
           {savingsResult && (
             <div className="flex flex-wrap gap-2 mt-2">
@@ -334,6 +345,7 @@ export function FAINAlerts() {
         status={lifeEventResult ? 'WATCH' : 'NORMAL'}
         onRefresh={runLifeEvent}
         loading={lifeEventLoading}
+        showFeedback={!lifeEventError}
       >
         {lifeEventResult && !lifeEventConfirming && (
           <div className="flex flex-wrap gap-2 mt-2">
