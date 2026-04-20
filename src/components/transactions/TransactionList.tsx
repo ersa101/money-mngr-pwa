@@ -152,12 +152,12 @@ export function TransactionList({
             {isSelectionMode && (
               <button
                 onClick={() => toggleSelection(transaction.id!)}
-                className="mt-4 p-1 hover:bg-slate-700 rounded"
+                className="mt-4 p-1 hover:bg-gray-100 rounded"
               >
                 {selectedIds.has(transaction.id!) ? (
-                  <CheckSquare className="w-5 h-5 text-purple-400" />
+                  <CheckSquare className="w-5 h-5 text-blue-500" />
                 ) : (
-                  <Square className="w-5 h-5 text-slate-500" />
+                  <Square className="w-5 h-5 text-gray-400" />
                 )}
               </button>
             )}
