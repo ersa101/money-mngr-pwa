@@ -38,17 +38,14 @@ export function DuplicateDetectorCard() {
         if (
           a.amount === b.amount &&
           a.fromAccountId === b.fromAccountId &&
-          (a.description ?? '') === (b.description ?? '') &&
           a.categoryId === b.categoryId &&
-          (a.subCategoryId ?? null) === (b.subCategoryId ?? null)
+          (a.subCategoryId ?? null) === (b.subCategoryId ?? null) &&
+          a.date.slice(0, 10) === b.date.slice(0, 10)
         ) {
-          const diff = Math.abs(new Date(a.date).getTime() - new Date(b.date).getTime());
-          if (diff <= 24 * 60 * 60 * 1000) {
-            const key = [a.id, b.id].sort().join('-');
-            if (!seen.has(key)) {
-              seen.add(key);
-              pairs.push({ a, b });
-            }
+          const key = [a.id, b.id].sort().join('-');
+          if (!seen.has(key)) {
+            seen.add(key);
+            pairs.push({ a, b });
           }
         }
       }
@@ -86,7 +83,7 @@ export function DuplicateDetectorCard() {
           ))}
         </div>
         <p className="text-xs text-gray-500 mt-3">
-          Tap a pair to review • Same amount, account & note within 24 hours.
+          Tap a pair to review • Same amount, account, category & subcategory on the same date.
         </p>
       </div>
 
