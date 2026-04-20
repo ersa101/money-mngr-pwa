@@ -216,6 +216,32 @@ const DISPLAY_HEADERS: Record<string, string> = {
   bucketName:          'Bucket Name',
 };
 
+/** Ensure all required sheets exist, creating any missing ones in a single batchUpdate. */
+async function ensureSheetsExist(sheetNames: string[]): Promise<void> {
+  const spreadsheetId = getSpreadsheetId();
+  const meta = await getSheetsClient().spreadsheets.get({ spreadsheetId });
+  const existing = new Set(
+    (meta.data.sheets ?? []).map((s: any) => s.properties?.title).filter(Boolean)
+  );
+
+  const missing = sheetNames.filter((name) => !existing.has(name));
+  if (missing.length === 0) return;
+
+  await getSheetsClient().spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: missing.map((title) => ({ addSheet: { properties: { title } } })),
+    },
+  });
+
+  // Write header rows for each newly created sheet
+  const configMap = new Map<string, readonly string[]>(SHEETS_CONFIG.map((c) => [c.name, c.headers]));
+  for (const name of missing) {
+    const headers = configMap.get(name);
+    if (headers) await writeHeaderRow(name, headers);
+  }
+}
+
 /** Write human-readable column labels to row 1 of a sheet. */
 async function writeHeaderRow(sheetName: string, headers: readonly string[]): Promise<void> {
   const labels = headers.map((h) => DISPLAY_HEADERS[h] ?? h);
@@ -270,11 +296,6 @@ async function writeAllRows(sheetName: string, rows: string[][]): Promise<void> 
       requestBody: { values: rows },
     });
   } catch (error: any) {
-    if (error.message?.includes('Unable to parse range')) {
-      throw new Error(
-        `Sheet "${sheetName}" does not exist. Please create sheets named: accounts, categories, transactions`
-      );
-    }
     throw error;
   }
 }
@@ -326,6 +347,7 @@ function deserializeRow(row: string[], headers: readonly string[]): Record<strin
 // ═══════════════════════════════════════════════════════════════
 
 export async function backupToSheets(data: BackupData, userId: string): Promise<void> {
+  await ensureSheetsExist(SHEETS_CONFIG.map((s) => s.name));
   for (const config of SHEETS_CONFIG) {
     const sheetData = (data as any)[config.name] as any[];
 
