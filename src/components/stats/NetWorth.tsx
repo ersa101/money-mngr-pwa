@@ -127,7 +127,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   const netWorthData = useMemo(() => {
     if (!accounts || !allTransactions) return []
 
-    const includedAccounts = accounts.filter(acc => acc.includeInNetWorth !== false)
+    const includedAccounts = accounts.filter(Boolean).filter(acc => acc.includeInNetWorth !== false)
 
     const getDayEnd = (day: Date): number => {
       const d = new Date(day)
@@ -180,7 +180,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
 
   const hasIncludedAccounts = useMemo(() => {
     if (!accounts) return true
-    return accounts.some(acc => acc.includeInNetWorth !== false)
+    return accounts.filter(Boolean).some(acc => acc.includeInNetWorth !== false)
   }, [accounts])
 
   if (!accounts || !allTransactions) {

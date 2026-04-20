@@ -41,7 +41,7 @@ export function FinancialAgeScore() {
     if (!transactions || !accounts || !categories || realAge === null) return null
 
     const last12 = new Set(getLastNMonths(12))
-    const allMonths = Array.from(new Set(transactions.map((t) => t.date.slice(0, 7)))).sort()
+    const allMonths = Array.from(new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))).sort()
 
     // Build monthly income/expense for last 12 months
     const monthlyIncome: number[] = []
@@ -57,7 +57,7 @@ export function FinancialAgeScore() {
     const investKeywords = ['investment', 'invest', 'stock', 'mutual fund', 'mf', 'sip', 'nps', 'ppf', 'fd']
     const catMap = new Map(categories.map((c) => [c.id!, c.name.toLowerCase()]))
 
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       const month = t.date.slice(0, 7)
       if (t.transactionType === 'TRANSFER') continue
 
@@ -85,7 +85,7 @@ export function FinancialAgeScore() {
 
     // Investment amount — transactions where category name matches invest keywords
     let investmentAmount = 0
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       if (t.transactionType !== 'EXPENSE' || !last12.has(t.date.slice(0, 7))) continue
       const catName = t.categoryId ? catMap.get(t.categoryId) ?? '' : ''
       if (investKeywords.some((kw) => catName.includes(kw))) {
@@ -94,12 +94,13 @@ export function FinancialAgeScore() {
     }
 
     // Debt accounts — CREDIT_CARD or LOAN type with balance > 0
-    const debtAccountCount = accounts.filter(
+    const debtAccountCount = accounts.filter(Boolean).filter(
       (a) => (a.type === 'CREDIT_CARD' || (a.type as string) === 'LOAN') && a.balance > 0
     ).length
 
     // Safe-to-spend: sum of BANK + CASH + WALLET accounts above threshold
     const safeToSpend = accounts
+      .filter(Boolean)
       .filter((a) => ['BANK', 'CASH', 'WALLET'].includes(a.type))
       .reduce((sum, a) => sum + Math.max(0, a.balance - (a.thresholdValue ?? 0)), 0)
 

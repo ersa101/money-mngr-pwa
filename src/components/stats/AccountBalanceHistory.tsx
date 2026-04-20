@@ -60,7 +60,7 @@ export function AccountBalanceHistory({
       return []
     }
 
-    const account = accounts.find((a) => a.id === selectedAccountId)
+    const account = accounts.filter(Boolean).find((a) => a.id === selectedAccountId)
     if (!account) return []
 
     // Get all days in range
@@ -131,7 +131,7 @@ export function AccountBalanceHistory({
   }
 
   const selectedAccount = selectedAccountId
-    ? accounts.find((a) => a.id === selectedAccountId)
+    ? accounts.filter(Boolean).find((a) => a.id === selectedAccountId)
     : null
 
   return (
@@ -158,7 +158,7 @@ export function AccountBalanceHistory({
 
         {/* Account Selector */}
         <div className="flex flex-wrap gap-2">
-          {accounts.map((account) => (
+          {accounts.filter(Boolean).map((account) => (
             <button
               key={`account-btn-${account.id}`}
               onClick={() => setSelectedAccountId(account.id || null)}

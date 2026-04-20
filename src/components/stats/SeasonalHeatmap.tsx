@@ -81,7 +81,7 @@ export function SeasonalHeatmap() {
     try {
       const transactions = await db.transactions.toArray()
       const categories = await db.categories.toArray()
-      const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
+      const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
       // Build last 52 week starts (Mondays)
       const now = new Date()
@@ -94,7 +94,7 @@ export function SeasonalHeatmap() {
 
       // Top 15 expense sub-categories by total spend
       const totalBySubCat = new Map<string, number>()
-      for (const t of transactions) {
+      for (const t of transactions.filter(Boolean)) {
         if (t.transactionType !== 'EXPENSE' || !t.subCategoryId) continue
         const name = subCatMap.get(t.subCategoryId) ?? 'Other'
         totalBySubCat.set(name, (totalBySubCat.get(name) ?? 0) + t.amount)
@@ -107,7 +107,7 @@ export function SeasonalHeatmap() {
       // Build cells [catIdx][weekIdx]
       const cells: number[][] = top15.map(() => new Array(52).fill(0))
 
-      for (const t of transactions) {
+      for (const t of transactions.filter(Boolean)) {
         if (t.transactionType !== 'EXPENSE' || !t.subCategoryId) continue
         const name = subCatMap.get(t.subCategoryId) ?? 'Other'
         const catIdx = top15.indexOf(name)

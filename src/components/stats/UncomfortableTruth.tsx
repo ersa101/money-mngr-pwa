@@ -142,12 +142,12 @@ export function UncomfortableTruth() {
 
   const computeNumbers = useCallback((): ComputedNumbers | null => {
     if (!transactions || !categories) return null
-    const catMap = new Map(categories.map((c) => [c.id!, c.name]))
+    const catMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
     const totalByCat = new Map<string, number>()
     const yearSet = new Set<number>()
 
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       if (t.transactionType !== 'EXPENSE') continue
       const catName = t.categoryId ? catMap.get(t.categoryId) ?? 'Other' : 'Other'
       totalByCat.set(catName, (totalByCat.get(catName) ?? 0) + t.amount)
@@ -166,7 +166,7 @@ export function UncomfortableTruth() {
     const lastYear = allYears[allYears.length - 1]
 
     let firstExpense = 0, lastExpense = 0, firstIncome = 0, lastIncome = 0
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       const yr = new Date(t.date).getFullYear()
       if (t.transactionType === 'EXPENSE') {
         if (yr === firstYear) firstExpense += t.amount
@@ -188,7 +188,7 @@ export function UncomfortableTruth() {
     // Fastest growing category (year-over-year last available)
     const catFirstYear = new Map<string, number>()
     const catLastYear = new Map<string, number>()
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       if (t.transactionType !== 'EXPENSE') continue
       const yr = new Date(t.date).getFullYear()
       const name = t.categoryId ? catMap.get(t.categoryId) ?? 'Other' : 'Other'

@@ -70,7 +70,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
 
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false

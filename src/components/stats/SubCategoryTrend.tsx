@@ -66,7 +66,7 @@ export function SubCategoryTrend({
   // Get subcategories (categories with parentId)
   const subCategoriesList = useMemo(() => {
     if (!categories) return []
-    return categories.filter(c => c.parentId !== undefined && c.parentId !== null)
+    return categories.filter(Boolean).filter(c => c.parentId !== undefined && c.parentId !== null)
   }, [categories])
 
   // Filter transactions by date range
@@ -75,7 +75,7 @@ export function SubCategoryTrend({
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
 
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false

@@ -20,7 +20,7 @@ export function InsightCard({ featureId, insightType, title, icon, onRun, contro
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<Date | null>(() => {
-    if (!persistKey) return null;
+    if (!persistKey || typeof window === 'undefined') return null;
     const saved = localStorage.getItem(persistKey);
     return saved ? new Date(saved) : null;
   });

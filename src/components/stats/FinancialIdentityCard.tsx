@@ -74,8 +74,8 @@ export function FinancialIdentityCard() {
   const stats = useMemo(() => {
     if (!transactions || !categories) return null
 
-    const catMap = new Map(categories.map((c) => [c.id!, c.name]))
-    const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
+    const catMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
+    const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
     const now = new Date()
     const currentYear = now.getFullYear()
@@ -109,7 +109,7 @@ export function FinancialIdentityCard() {
       LIFE_ESSENTIALS: 0, PEOPLE_SOCIAL: 0, TRANSPORT: 0, YOURSELF: 0, SAVINGS_INVEST: 0,
     }
 
-    for (const t of transactions) {
+    for (const t of transactions.filter(Boolean)) {
       const month = t.date.slice(0, 7)
       const catName = t.categoryId ? catMap.get(t.categoryId) ?? '' : ''
       const subCatName = t.subCategoryId ? subCatMap.get(t.subCategoryId) : undefined

@@ -88,9 +88,9 @@ export function CorrelationWeb() {
     try {
       const transactions = await db.transactions.toArray()
       const categories = await db.categories.toArray()
-      const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
+      const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
-      const months = new Set(transactions.map((t) => t.date.slice(0, 7)))
+      const months = new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))
       if (months.size < 6) {
         const res: MatrixResult = { names: [], totals: [], avgMonthlys: [], matrix: [], edges: [], hasEnoughData: false }
         setResult(res)
@@ -98,6 +98,7 @@ export function CorrelationWeb() {
       }
 
       const raw = transactions
+        .filter(Boolean)
         .filter((t) => t.transactionType === 'EXPENSE')
         .map((t) => ({
           date: t.date,

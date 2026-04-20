@@ -91,7 +91,7 @@ export function LifestyleInflationCurve() {
       const transactions = await db.transactions.toArray()
       const monthMap = new Map<string, { income: number; expense: number }>()
 
-      for (const t of transactions) {
+      for (const t of transactions.filter(Boolean)) {
         if (t.transactionType === 'TRANSFER') continue
         const month = t.date.slice(0, 7)
         if (!monthMap.has(month)) monthMap.set(month, { income: 0, expense: 0 })

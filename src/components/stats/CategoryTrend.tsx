@@ -102,7 +102,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
     if (!allTransactions) return []
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const ts = new Date(tx.date).getTime()
       if (isNaN(ts)) return false
       return ts >= startTs && ts <= endTs
