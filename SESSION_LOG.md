@@ -702,12 +702,11 @@
 3. The communication style directive ("no excess information, no batch plans unless asked") effectively reduced noise throughout the session.
 
 **Handoff Notes (for next session):**
-- [ ] All 7 fixes (F1–F7) complete. V2_P2.7 done. Ready to commit all 6 commits.
+- [ ] V2_P2.7 done. All 6 commits on `v2.0426` (ce2dd61 → 50e72ae). **Not yet pushed to remote** — push when ready.
 - [ ] Visual QA — granularity toggles (1D/1W/1M) on 4 charts still untested. Carried from Session #2.
 - [ ] CSV dedup bootstrap UI note still pending. Carried from Session #3.
 - [ ] `llmService.ts` (SMS/Magic Box) still on old NEXT_PUBLIC_ env vars. Awaiting user decision.
-- [ ] 6 commits to make per commit strategy (F1 → F2+F3 → F4 → F5 → F6 → F7).
-- [ ] Next logical task: visual QA pass on Phase 2.7 changes, then plan v2_p2.8 if user has new bugs/features.
+- [ ] Next logical task: visual QA pass on Phase 2.7 changes, then scope v2_p2.8 when user has new bugs/features.
 
 ---
 
