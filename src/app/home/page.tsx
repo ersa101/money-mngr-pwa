@@ -1,5 +1,6 @@
 'use client';
 
+import { Home } from 'lucide-react';
 import { SafeToSpendCard } from '@/components/home/SafeToSpendCard';
 import { BelowThresholdCard } from '@/components/home/BelowThresholdCard';
 import { DayOverDayCard } from '@/components/home/DayOverDayCard';
@@ -13,9 +14,19 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">BRIEF</h1>
+        {/* Header — matches HUB/RADAR layout: icon block + h1 + subtitle stacked */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+              <Home className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">BRIEF</h1>
+              <p className="text-sm text-gray-500">
+                Balances, Risk Indicators & Essential Financials
+              </p>
+            </div>
+          </div>
           <span className="text-sm text-gray-400">{today}</span>
         </div>
 

@@ -19,12 +19,19 @@ export default function FAINPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] md:h-[calc(100vh-4rem)] bg-gray-50 flex flex-col">
-      {/* Header */}
+      {/* Header — matches HUB/RADAR layout: icon block + h1 + subtitle stacked */}
       <div className="px-4 pt-5 pb-3 border-b border-gray-200 bg-white sticky top-0 z-10">
-        <h1 className="text-lg font-bold text-gray-900 mb-3">
-          🧠 <span className="text-blue-600">SAGE</span>
-          <span className="text-gray-500 text-sm font-normal ml-2">Spend Analysis & Guidance Engine</span>
-        </h1>
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 bg-blue-100 rounded-lg flex items-center justify-center" style={{ width: '40px', height: '40px' }}>
+            <span className="text-2xl leading-none">🧠</span>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">SAGE</h1>
+            <p className="text-sm text-gray-500">
+              Spend Analysis & Guidance Engine
+            </p>
+          </div>
+        </div>
 
         {/* Segmented control */}
         <div className="flex bg-gray-100 rounded-full p-1 gap-1">
