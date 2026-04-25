@@ -389,6 +389,44 @@
 **Bugs Hit:** 1 (configMap tsc type error in `ensureSheetsExist` — caught by tsc, fixed immediately)
 
 #### 🧑 You Fill (optional)
+**Mood/Energy:** Frustated cuz of repetetive work.
+**Rushing?:** N	
+**Satisfaction:** 3/5
+**Session Duration:** 30 minutes
+**Claude Think+Code Time:**
+**Tokens:** Start: | End: | Freed:
+**What felt off:** acknowledging the older bugs.
+**What you'd do differently:** NA
+
+---
+
+### UL-10 — Linked to Session #10 | 2026-04-24
+
+#### 🤖 Agent Fills
+**Code-to-Planning Ratio:** ~30% planning / 70% code (two-phase: scoping Q&A → compaction → full coding execution)
+**QnA Count:** ~13 total (12 in scoping phase locking C1–C3, E1–E7, D033–D037; 1 in coding phase — Y/N audit)
+**Scope Creep:** N — all items were new scope being locked in scoping phase, then clean execution. BUG-035 and CorrelationWeb inner guard fix were discovered during execution, but both are within the null-guard bug class already in scope.
+**Prompt Clarity:** 4/5
+**Prompt Specificity:** 4/5
+**Overall Prompt Quality:** 4/5
+
+**Vagueness Flags:**
+- None significant. Screenshots were provided for most visual bugs. Decisions were explicit ("all-or-nothing" for backup, "single commit only when I say so"). The Y/N audit prompt was precise and caught a real issue.
+
+**Improvement check vs UL-9 feedback:**
+- UL-9 tip 1 (use "converse bluntly and logically extremely" in every execution session opener): ✅ Applied — "converse bluntly" directive was in the opener.
+- UL-9 tip 2 ("do not miss anything" qualifier for sweep-type fixes): ✅ Applied — the Y/N audit prompt is the evolved form of this: explicitly forcing a completeness check after execution, not just trusting the first pass.
+- UL-9 tip 3 (document execution session formula in CLAUDE.md): ⏳ Not done this session — carry to next.
+
+**Top 3 Improvement Tips:**
+- The Y/N audit prompt mid-session ("ensure that all changes as said in Session #9 but got missed + those from current session are completed — recheck and respond with Y/N") is the most effective quality gate introduced across 10 sessions. It costs one prompt and caught a real broken-UX bug. Make it a standard close-of-execution-phase step: always run Y/N audit before asking for docs update.
+- The two-phase structure (scope → compact → code) worked well but caused one re-read overhead: after compaction, all files had to be re-read from scratch. If scope is fully locked and no code has been written, there is no harm in starting code before compacting — compact only when context is actually full. Compacting mid-planning is more disruptive than compacting mid-code.
+- BUG-035 is the 5th recurrence of the null-element crash class. After any null-guard fix, the correct close-of-fix action is: grep the entire `stats/` directory for `.map(` and `.forEach(` on `categories`, `transactions`, and `accounts` — not just the reported component. Add this as a standing "avoid next time" to any null-guard BUGS.md entry going forward.
+
+**Decisions Made:** 5 (D033–D037, all in scoping phase before compaction)
+**Bugs Hit:** 2 (BUG-035 — categories.map null crash; CorrelationWeb inner useMemo hasEnoughData gate — both discovered during coding phase)
+
+#### 🧑 You Fill (optional)
 **Mood/Energy:**
 **Rushing?:**
 **Satisfaction:**
@@ -397,6 +435,87 @@
 **Tokens:** Start: | End: | Freed:
 **What felt off:**
 **What you'd do differently:**
+
+---
+
+### UL-11 — Linked to Session #11 | 2026-04-25
+
+#### 🤖 Agent Fills
+**Code-to-Planning Ratio:** ~30% planning (penalty analysis + step 1 assessment) / 70% code (6-file fix)
+**QnA Count:** 4 (penalty framing → effort assessment → make changes → close)
+**Scope Creep:** N — 3 bugs fixed, 2 remaining unresolved (confirmed by user after full flow testing)
+**Prompt Clarity:** 3.8/5
+**Prompt Specificity:** 3.5/5
+**Overall Prompt Quality:** 3.7/5
+
+**Vagueness Flags:**
+- None significant. Bug list was specific, screenshots implied, and "WORST CASE SCENARIO" label correctly flagged regressions. User confirmed both FAINAlerts and UncomfortableTruth bugs after completing full user flows — agent's static code analysis dismissed them prematurely and incorrectly.
+
+**Improvement check vs UL-10 feedback:**
+- UL-10 tip 1 (Y/N audit after every execution session before closing): ❌ Not applied. If this had been run after S10, BUG-036/037/038 would have been caught in-session rather than becoming a separate penalty session.
+- UL-10 tip 2 (compact only when context is full, not mid-planning): ✅ Applied — no unnecessary compaction this session.
+- UL-10 tip 3 (after any null-guard fix, grep for .map( on all arrays): ❌ Not the user's responsibility to run — but the agent's. Carry to CLAUDE.md as a standing rule.
+
+**Top 3 Improvement Tips:**
+- The penalty session structure (analysis → step 1 effort → then code) is the right discipline for bug report sessions. It prevented premature fixes and forced root cause confirmation. Make it the default, not a one-off.
+- Agent dismissed two confirmed bugs (FAINAlerts A-4/5/6 feedback, UncomfortableTruth individual feedback) as false positives based on static code reading alone. User had already completed the full flows and confirmed the symptoms. Static code analysis is not a substitute for runtime verification — agent must flag "unverified" rather than "non-bug" when it cannot test at runtime.
+- "WORST CASE SCENARIO" and "repetitive hence frustrating" were accurate signals — regressions in previously working features. Trust the user's classification of severity. Treat regression labels as high-confidence until disproven.
+
+**Decisions Made:** 2 (D038, D039)
+**Bugs Fixed:** 3 (BUG-036, BUG-037, BUG-038)
+**Bugs confirmed but unresolved:** 2 (FAINAlerts A-4/5/6 feedback shows pre-run; UncomfortableTruth individual per-statement feedback missing) — carry to next session for proper RCA and fix
+
+#### 🧑 You Fill (optional)
+**Mood/Energy:** Angry/ Frustated/ No idea of next steps
+**Rushing?:**No
+**Satisfaction:**2/5
+**Session Duration:**
+**Claude Think+Code Time:**
+**Tokens:** Start: | End: | Freed:
+**What felt off:** despite of running the PWA cleanly (erasing all site data), i get errors with no possibility of checking before hand.
+**What you'd do differently:** figure out a possibility to ensure asked changes are incorporated or not before testing.
+
+---
+
+### UL-12 — Linked to Session #12 | 2026-04-25 / 2026-04-26
+
+#### 🤖 Agent Fills
+**Code-to-Planning Ratio:** ~5% code (CLAUDE.md + SESSION_LOG template, Bucket B commit) / 95% planning (9 RCA rounds, scope-locking, process-rules authoring, exhaustive to-do list)
+**QnA Count:** ~30 across 9 explicit RCA rounds (each round closed with "thoughts/comments/loopholes/blunt reviews?" — highest-quality scrutiny pattern across 12 sessions)
+**Scope Creep:** N — every constraint locked into a numbered decision (D040–D048) before any code consideration. Liability sign rule, tri-state, exclusion-only-ON, BRIEF acronym all emerged across rounds but were captured cleanly into D040/D041/D047, not lost.
+**Prompt Clarity:** 4.5/5
+**Prompt Specificity:** 4.5/5
+**Overall Prompt Quality:** 4.5/5
+
+**Vagueness Flags:**
+- "Tab names not changed on BRIEF, SAGE screens, in similar fashion to TALLY, RADAR, HUB screens" — initial parse was ambiguous (does user want subtitle parity, or claim TALLY/RADAR/HUB are also broken?). Required 1 clarification round (round 5). Resolved cleanly to subtitle parity once asked.
+- Liability sign rule, tri-state mutual exclusion, and exclusion-only-ON-accounts all emerged across rounds 3, 4, 9 — not in initial bug report. UL-8 flagged the same pattern. Improvement is iterative scrutiny captured all of them; ideal would be all-in-initial-message.
+
+**Improvement check vs UL-11 feedback:**
+- UL-11 tip 1 (penalty session structure as default for bug sessions): ✅ Applied. "Don't plan yet" + "RCA before fix" was the operating mode for all 9 rounds.
+- UL-11 tip 2 (static code analysis is not substitute for runtime verification): ✅ Critical recognition this session. The 4-session cascade of "still broken" reports traced to stale `.next/` build, not bad code. Rule 1 (Deploy hygiene) added to CLAUDE.md to prevent recurrence.
+- UL-11 tip 3 (trust user severity classifications): ✅ Applied. "WORST CASE SCENARIO" and "extremely angry" treated as escalation signal, drove deeper RCA, did NOT result in premature commits.
+
+**Top 3 Improvement Tips:**
+- "How can you test yourself whether the changes are actually done in the PWA codes?" was the single most leveraged prompt across 12 sessions. It surfaced the actual quality gap (no agent runtime verification) that had been hidden behind tsc-passing as truth. Ask this question in every session that involves UI changes — it forces the verification protocol to be explicit.
+- The mood-as-escalation discipline this session was correct: extreme frustration drove demand for RCA, not demand for immediate fixes. UL-7 had the opposite (rushing to commit despite incomplete verification). Sustain this mood-to-action calibration.
+- "Don't plan yet" + iterative "thoughts/comments/loopholes/blunt reviews?" after every round = the right protocol for bug-RCA sessions. Compare to S11 where premature fixes shipped 2 false-positive dismissals. Make this the default for every bug-class session.
+
+**New positive: cross-session learning capture.** UL-11 lesson (static code analysis insufficient) was operationalized into CLAUDE.md Rule 1 this session. UL-8 lesson (constraint disclosure) operationalized into Rule 3. UL-7 lesson (commit discipline) into Rule 2. Process rules now codify what prior UL entries only described. This is the first session where USER_LEARNINGS feedback became binding rules instead of advisory notes.
+
+**Decisions Made:** 9 (D040–D048)
+**Bugs Diagnosed:** 6 (BUG-039 through BUG-044, including 1 process bug)
+**Bugs Fixed:** 0 (pure planning + process session)
+
+#### 🧑 You Fill (optional)
+**Mood/Energy:** calm and a bit satisfied with opus4.7 results. 
+**Rushing?:**NO
+**Satisfaction:**3.8/5
+**Session Duration:** 1hour of convo
+**Claude Think+Code Time:**1 hour
+**Tokens:** Start: | End: | Freed:
+**What felt off:** unable to track code changes as per given requirements, as a results same bugs keep popping up.
+**What you'd do differently:**No idea, change LLM model maybe.
 
 ---
 

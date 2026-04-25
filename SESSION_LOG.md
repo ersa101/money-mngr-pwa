@@ -872,4 +872,66 @@
 
 ---
 
+---
+## Session Details #12 — 2026-04-25 / 2026-04-26
+**Branch:** `v2.0426`
+**Phase:** v2, Phase 2.7.4 (RCA + scoping + process rules — no feature code)
+**Session Duration:** ~3–4 hrs across 2 days (9 rounds of RCA + Bucket B execution)
+**Claude Think+Code Time:** ~[X] mins
+**Tokens:** Start: [N] | End: [N] | Freed via compact: N
+
+### 🤖 Agent Summary
+
+**Tasks Attempted:**
+- [x] 9 rounds of RCA on user-reported recurring bugs
+- [x] Lock V2.7.4 scope: 8 fix items + cache invalidation choreography
+- [x] Identify root cause of S10/S11 "still broken" reports → stale `.next/` build, not bad code
+- [x] Author 4 CLAUDE.md process rules (deploy hygiene, commit discipline, constraint disclosure, blast-radius)
+- [x] Add `Verified by:` field to SESSION_LOG template
+- [x] Force-add CLAUDE.md to git (was gitignored via `*.md`)
+- [x] Bucket B commit
+- [x] Comprehensive V2.7.4 to-do list (Buckets A–N)
+- [x] Session docs (this entry, DECISIONS, BUGS, USER_LEARNINGS)
+
+**Tasks Completed:** All — Bucket B fully complete. Plan doc + Buckets A, C–N pending user authorization.
+
+**Files Changed:**
+- `CLAUDE.md` — **Force-added** (was gitignored). New "Process Rules" section with Rules 1–4, "SESSION_LOG verification field" section, current phase → v2_p2.7.4. **Verified by:** CODE-ONLY (docs, no build needed)
+- `SESSION_LOG.md` — Template updated: per-fix `Verified by:` tag (BUILD-VERIFIED|USER-SCREENSHOT|CODE-ONLY) + verification status block. **Verified by:** CODE-ONLY
+
+**Verification Status (per Rule 1):**
+- Clean rebuild run? N (docs-only commit, no build needed)
+- Build output errors? N/A
+- User screenshot confirmation? N/A (no UI changes)
+
+**Bugs Hit During This Session:**
+| Bug | Root Cause | Fix Applied |
+|-----|-----------|-------------|
+| Initially missed CLAUDE.md was gitignored | `.gitignore` line 84 has `*.md` blanket ignore | Force-added with `git add -f`; matches existing pattern for SESSION_LOG/BUGS/USER_LEARNINGS |
+| Diagnosed: 4+ sessions of "still broken" reports | User's `.next/` was stale; `npm run start` served old build | RCA confirmed; Rule 1 enforces clean rebuild + screenshot before any "fix" claim |
+
+**TypeScript:** N/A (no source code changed)
+
+**QnA Count:** ~30 across 9 RCA rounds (highest in any session — appropriate for scoping + process rewrite)
+**Decision Trails:** → See DECISIONS.md #D040–#D044
+**User Learnings:** → See USER_LEARNINGS.md UL-12
+
+**User Prompt Quality (Claude rating):** 4.5/5
+**Claude's verdict:**
+1. Best RCA discipline of any session. "Don't plan yet" + "thoughts/comments/loopholes/blunt reviews?" after every round forced iterative scrutiny instead of premature fixing. Sustain this pattern for every bug session going forward.
+2. The question "how can you test yourself whether changes are actually done in the PWA codes?" was the single highest-leverage prompt across 12 sessions. Surfaced the actual quality gap (no runtime verification) that had been hidden behind tsc-passing-as-truth for months.
+3. Mood signal ("extremely angry/frustrated") was correctly used as escalation, not as scope. User did not let frustration force premature commits — instead used it to demand RCA. This is the right mood-to-action calibration, finally.
+
+**Handoff Notes (for next session):**
+- [ ] **Bucket A pending** — commit S10 (19 files, v2_p2.7.2) + S11 (3 files, v2_p2.7.3) work as 2 separate commits BEFORE V2.7.4 starts. Currently violates the just-committed Rule 2.
+- [ ] **Bucket C pending** — write `V2_P2.7.4_CLAUDE_CODE_PROMPT.md` covering F1–F8 with acceptance criteria + screenshot checklist per commit
+- [ ] **Bucket M decision needed** — authorize `Claude_in_Chrome` MCP for self-verification post-build? Would close the runtime-verification gap I currently can't cover.
+- [ ] **`.gitignore` decision needed** — add `!CLAUDE.md` exception? Otherwise future CLAUDE.md edits need `git add -f` every time.
+- [ ] **Push to remote v2.0426** after Bucket A is committed? User's call.
+- [ ] **V2.7.4 final scope (8 items, locked):** F1 Tri-state account flag · F2 NetWorth rewrite · F3 CorrelationWeb algo router + n<3 fallback · F4 UncomfortableTruth per-statement feedback · F5 Category dropdown account-name filter · F6 A-Z sort · F7 BRIEF+SAGE subtitle parity · F8 Cache invalidation choreography
+- [ ] **Carry from S10/S11/S2/S3:** Visual QA on granularity toggles untested; CSV dedup bootstrap UI note; `llmService.ts` SMS/Magic Box still on old NEXT_PUBLIC_ env vars
+- [ ] **Future scope (V2.7.5):** Playwright smoke tests for 5 critical paths (add txn, restore backup, view stats, FAIN chat, settings save)
+
+---
+
 <!-- AGENT: append new session above this line -->
