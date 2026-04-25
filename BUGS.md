@@ -504,6 +504,15 @@ BUG-024 (InsightCard SSR crash) — **FIXED** in Session #9 F4 (included in same
 **Mood:** — | **Rushing?:** —
 **Avoid next time:** After fixing the first crash in a component chain, always grep the entire stats/ directory for `.map(` on `categories`, `transactions`, and `accounts` before declaring the sweep complete. Map construction calls (`new Map(array.map(...))`) are just as vulnerable as field-access chains but look different syntactically — they require the same `.filter(Boolean)` guard.
 
+**Session #13 note:** V2.7.4 execution complete (C1–C7). All 7 commits CODE-ONLY pending build verification.
+
+BUG-039 (NetWorth liability dual-toggle + fallback) — **FIXED** in S13 C7. Tri-state classification (D040) + toggle-only classifier (D041). Liability accounts now solely defined by `isLiability=true`; no negative-balance fallback.
+BUG-040 (CorrelationWeb empty card cache version 3 stale) — **FIXED** in S13 C5+C6. Cache version 3 → 4 + one-shot `computedInsights.clear()` on app boot if `clearedInsightsAt < INSIGHTS_BUILD_DATE`.
+BUG-041 (BRIEF + SAGE missing acronym subtitle) — **FIXED** in S13 C1. Stacked icon + h1 + subtitle layout matching HUB/RADAR/TALLY pattern.
+BUG-042 (UncomfortableTruth missing per-statement feedback) — **FIXED** in S13 C4. Per-statement 👍 👎 inline; transient state cleared on Recompute; each click writes to `feedbackLog` with statementHash for future training.
+BUG-043 (Category dropdowns showing account names) — **FIXED** in S13 C3. Shared `useCleanCategories()` hook applied at source across 13 display files. Top-level filter only (subcategories pass through per S12 user clarification).
+BUG-044 (process — stale .next/ build) — **CODIFIED** in S12 Bucket B (CLAUDE.md Rule 1). No code change; mandates clean rebuild + screenshot before any "fix" claim.
+
 **Session #10 note:** BUG-028 through BUG-034 fixes applied (E1–E7 + C1–C3). BUG-035 crash fix applied. tsc 0 errors throughout.
 
 BUG-028 (GSheet numeric timestamps) — **FIXED** in Session #10 C1. `DATE_FIELDS` set + numeric → ISO conversion in `serializeRow`.

@@ -934,4 +934,114 @@
 
 ---
 
+---
+## Session Details #13 — 2026-04-26
+**Branch:** `v2.0426`
+**Phase:** v2, Phase 2.7.4 — execution (Buckets A, B, C, C1–C7)
+**Session Duration:** ~[X] mins
+**Claude Think+Code Time:** ~[X] mins
+**Tokens:** Start: [N] | End: [N] | Freed via compact: N
+
+### 🤖 Agent Summary
+
+**Tasks Attempted:**
+- [x] Bucket A — commit S10 + S11 work (deferred WIP from prior sessions)
+- [x] Bucket B — CLAUDE.md process rules (Rules 1–4) + SESSION_LOG `Verified by` field
+- [x] .gitignore exceptions for tracked session-brain docs
+- [x] Bucket C — V2.7.4 plan doc (`V2_P2.7.4_CLAUDE_CODE_PROMPT.md`)
+- [x] C1 (F7) — BRIEF + SAGE subtitle parity
+- [x] C2 (F6) — A-Z sort dropdowns
+- [x] C3 (F5) — Category dropdown account-name filter
+- [x] C4 (F4) — UncomfortableTruth per-statement feedback
+- [x] C5 (F3) — CorrelationWeb algo router + n<3 fallback
+- [x] C6 (F8) — Cache invalidation choreography
+- [x] C7 (F1+F2) — Tri-state account classification + NetWorth rewrite
+- [x] Bucket N — closing docs (this entry, BUGS, UL)
+- [ ] Bucket M — MCP browser self-verification (deferred to next session per user)
+
+**Tasks Completed:** All except Bucket M.
+
+**Files Changed:**
+
+*Bucket A (commits c61f181 + 1364ff0):*
+- 14 S10 files + 4 S11 files committed verbatim from prior working tree
+
+*Bucket B (commit 39b230a):*
+- `CLAUDE.md` — Process Rules 1–4 + Verified by field section + phase pointer to v2_p2.7.4. Force-added (was gitignored). **Verified by:** CODE-ONLY
+- `SESSION_LOG.md` template — per-fix `Verified by:` tag. **Verified by:** CODE-ONLY
+
+*Docs consolidation (4e953db) + .gitignore (f86c35f):*
+- BUGS / SESSION_LOG / USER_LEARNINGS / DECISIONS S10+S11+S12 entries
+- `.gitignore` — `!CLAUDE.md`, `!DECISIONS.md`, `!SESSION_LOG.md`, `!BUGS.md`, `!USER_LEARNINGS.md`, `!CHEATSHEET.md`, `!V2_P*_CLAUDE_CODE_PROMPT.md`, `!V2_P*_PLAN.md`. **Verified by:** CODE-ONLY (validated via `git check-ignore -v`)
+
+*Plan doc (3896699):*
+- `V2_P2.7.4_CLAUDE_CODE_PROMPT.md` — F1–F8 spec, commit plan C1–C7, verification protocol
+
+*C1 (1dbbfb9):*
+- `src/app/home/page.tsx` — BRIEF subtitle "Balances, Risk Indicators & Essential Financials" + Home icon block + stacked layout
+- `src/app/fain/page.tsx` — SAGE restructured to icon block + h1 + subtitle stacked
+
+*C2 (5f880fa):*
+- `src/lib/sortUtils.ts` (NEW) — `sortByName<T>` locale-aware numeric case-insensitive
+- Applied to: transactions/page.tsx, AddTransactionModal, BulkEditModal, SaveFilterModal, AccountBalanceHistory, CategorySelector, SubCategorySelector
+
+*C3 (dc46875):*
+- `src/hooks/useCleanCategories.ts` (NEW) — filters top-level categories matching account names
+- Applied to: 13 display files (dropdowns + home cards + stats charts)
+- Skipped per Rule 4: settings/page.tsx (Categories management), TransactionList/MagicBox (lookup-only), backend hooks, CorrelationWeb + SeasonalHeatmap (touched in C5)
+
+*C4 (d8f4287):*
+- `src/components/stats/UncomfortableTruth.tsx` — per-statement 👍 👎 inline; statementHash; transient stmtFeedback Map; voteStatement → feedbackLog write; Recompute button; removed card-level YES/SOMEWHAT/NO + 'feedback-done' phase
+
+*C5 (26a8bcd):*
+- `src/lib/correlationUtils.ts` — cosineSimilarity, spearmanCorrelation, rankArray, selectAlgo, computeMatrixWithAlgo, computeCorrelationsWithAlgo
+- `src/components/stats/CorrelationWeb.tsx` — algo router by months.size; n<3 leaderboard mode (top 10 by spend) with amber "unlocks at 3 months" banner; cache version 3 → 4; algo caption "via [algo]"; D045 inline filter for account-name pollution
+
+*C6 (91f3d62):*
+- `next.config.mjs` — cacheId v8 → v9
+- `src/hooks/useInsightsCacheBoot.ts` (NEW) — silent one-shot computedInsights clear if `appSettings.clearedInsightsAt < INSIGHTS_BUILD_DATE`
+- `src/components/AppContent.tsx` — invokes useInsightsCacheBoot()
+
+*C7 (f59e07f) — LARGEST commit:*
+- `src/lib/accountClassification.ts` (NEW) — AccountClassification type, getAccountClassification, classificationToFlags, classificationLabel
+- `src/hooks/useTriStateMigration.ts` (NEW) — one-shot migration, liability wins on "both ON" anomaly, gated on `triStateMigratedAt` flag
+- `src/components/AppContent.tsx` — invokes useTriStateMigration()
+- `src/components/settings/AccountsTable.tsx` — replaced 2 toggle columns with 1 segmented control (Liability/Neither/Asset); synthetic 'classification' sort col A-Z
+- `src/components/stats/NetWorth.tsx` — partition into liabilityAccounts + assetAccounts via tri-state ONLY; signed liability sum; Math.abs() display; removed includeInNetWorth filter + negative-balance fallback; empty-state copy updated
+
+**Verification Status (per Rule 1):**
+- Clean rebuild run? **N (pending user execution)** — every commit tagged `[CODE-ONLY]` until user runs `Remove-Item .next; npm run build; npm run start` and screenshots acceptance criteria from V2_P2.7.4 plan doc per commit
+- Build output errors? Pending
+- User screenshot confirmation? Pending per Bucket L protocol
+- Tags will be upgraded to `[BUILD-VERIFIED]` once user confirms Y on all acceptance items per commit
+
+**Bugs Hit During This Session:**
+| Bug | Root Cause | Fix Applied |
+|-----|-----------|-------------|
+| .next/ build pipeline (S12 RCA) | Pre-existing — root cause behind 4+ sessions of "still broken" reports | Codified in CLAUDE.md Rule 1; no code change |
+| CorrelationWeb cache version 3 stale (BUG-040) | Cached empty result blocks compute() | Cache version 3 → 4 in C5; one-shot clear in C6 |
+
+**TypeScript:** `npx tsc --noEmit` — 0 errors after every commit (C1 → C7)
+
+**QnA Count:** ~5 across execution (mostly per-commit "next bucket?" confirmations + the C7 user-spec on useSafeToSpend)
+**Decision Trails:** None new — all locked in S12 (D040–D048)
+**User Learnings:** → See USER_LEARNINGS.md UL-13
+
+**User Prompt Quality (Claude rating):** 4.5/5
+**Claude's verdict:**
+1. "go C / C2 > C3 > ..." short directive style after Bucket B was the cleanest execution-mode opener across 13 sessions. Pre-locked decisions (S12 round 1–9) made every bucket actionable without re-confirmation. The 30 rounds of S12 RCA paid off in S13 zero ambiguity.
+2. "single commit only" + "don't generate what was accomplished every time" + "just say which bucket next" is the correct tight-loop protocol for execution sessions. Sustain this verbatim for all future execution-only sessions.
+3. The Rule 4 (blast-radius disclosure) added in B fired correctly in C3 (skipped 5 lookup-only files + settings/page.tsx Categories management + 4 chart files deferred to C5). Without Rule 4 the agent would have applied filter to consumer-breaking sites silently — exactly the failure mode Rule 4 prevents.
+
+**Handoff Notes (for next session):**
+- [ ] **Build verification pending** — user must run `Remove-Item -Recurse -Force .next; npm run build; npm run start` then hard refresh and screenshot each commit's acceptance criteria from `V2_P2.7.4_CLAUDE_CODE_PROMPT.md`. Reply Y/N per item. All Y → upgrade SESSION_LOG tags from `[CODE-ONLY]` to `[BUILD-VERIFIED]`. Any N → RCA round before any patch.
+- [ ] **Bucket M (MCP browser self-verification)** — deferred to next session. Browser extension confirmed connected (Browser 1, deviceId d1e0ef49-...). Authorize navigate + screenshot to integrate browser-driven verification into Bucket L step 3.
+- [ ] **Migration caveat (D040)** — first app boot post-deploy will trigger `useTriStateMigration` if any account has both `isLiability=true` AND `includeInNetWorth=true`. Liability wins. User may want to recheck classifications after migration on accounts that previously had both flags.
+- [ ] **Cache caveat (D043)** — first app boot post-deploy will trigger one-shot `computedInsights.clear()` if user's `clearedInsightsAt` is older than `INSIGHTS_BUILD_DATE` (2026-04-26). Silent. Charts auto-recompute on first open.
+- [ ] **PWA service worker** — `cacheId` bumped to v9. Browser will fetch fresh assets on next load. If user still sees stale UI, DevTools → Application → Service Workers → Unregister + Clear site data.
+- [ ] **Carry from S2/S3/S10/S11** — Visual QA on granularity toggles (1D/1W/1M); CSV dedup bootstrap UI note; `llmService.ts` SMS/Magic Box still on old NEXT_PUBLIC_ env vars; NetWorth.tsx:109 cosmetic duplicate final data point.
+- [ ] **Future scope (V2.7.5)** — Playwright smoke tests for 5 critical paths.
+
+---
+
 <!-- AGENT: append new session above this line -->
