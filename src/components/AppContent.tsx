@@ -2,12 +2,17 @@
 
 import { useDbStatus } from '@/contexts/DbContext'
 import { useSidebar } from '@/contexts/SidebarContext'
+import { useInsightsCacheBoot } from '@/hooks/useInsightsCacheBoot'
 import { usePathname } from 'next/navigation'
 
 export function AppContent({ children }: { children: React.ReactNode }) {
   const { isReady, hasDb } = useDbStatus()
   const { expanded } = useSidebar()
   const pathname = usePathname()
+
+  // V2.7.4 D043 — one-shot computedInsights clear on app boot if build is newer
+  // than user's last cleared marker. Silent. Idempotent.
+  useInsightsCacheBoot()
 
   // Login page: no sidebar/header offsets
   if (pathname === '/login') {
