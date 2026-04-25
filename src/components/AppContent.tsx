@@ -3,6 +3,7 @@
 import { useDbStatus } from '@/contexts/DbContext'
 import { useSidebar } from '@/contexts/SidebarContext'
 import { useInsightsCacheBoot } from '@/hooks/useInsightsCacheBoot'
+import { useTriStateMigration } from '@/hooks/useTriStateMigration'
 import { usePathname } from 'next/navigation'
 
 export function AppContent({ children }: { children: React.ReactNode }) {
@@ -13,6 +14,9 @@ export function AppContent({ children }: { children: React.ReactNode }) {
   // V2.7.4 D043 — one-shot computedInsights clear on app boot if build is newer
   // than user's last cleared marker. Silent. Idempotent.
   useInsightsCacheBoot()
+  // V2.7.4 D040 — one-shot tri-state migration: resolve "both flags ON" anomaly.
+  // Liability wins. Idempotent.
+  useTriStateMigration()
 
   // Login page: no sidebar/header offsets
   if (pathname === '/login') {

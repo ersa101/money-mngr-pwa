@@ -9,6 +9,10 @@ import { AccountModal } from '@/components/AccountModal'
 import { DeleteConfirmDialog } from '@/components/DeleteConfirmDialog'
 import { Button } from '@/components/ui/button'
 import { Plus, ChevronDown, ChevronUp, Search, X } from 'lucide-react'
+import { getAccountClassification, classificationToFlags, type AccountClassification } from '@/lib/accountClassification'
+
+// V2.7.4 D040 — sort column type extends keyof Account with synthetic 'classification'
+type SortCol = keyof Account | 'classification'
 
 export function AccountsTable() {
   const db = useDb()
@@ -18,7 +22,7 @@ export function AccountsTable() {
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const [tableSortCol, setTableSortCol] = useState<keyof Account>('name')
+  const [tableSortCol, setTableSortCol] = useState<SortCol>('name')
   const [tableSortDir, setTableSortDir] = useState<'asc' | 'desc'>('asc')
   const [tableFilter, setTableFilter] = useState('')
   const [editCell, setEditCell] = useState<{ id: number; field: keyof Account } | null>(null)
@@ -35,15 +39,20 @@ export function AccountsTable() {
       list = list.filter(a => a.name.toLowerCase().includes(q) || (a.group || '').toLowerCase().includes(q))
     }
     list.sort((a, b) => {
-      const av = a[tableSortCol] ?? ''
-      const bv = b[tableSortCol] ?? ''
-      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+      // V2.7.4 D040 — synthetic 'classification' column derives from dual fields
+      const av: any = tableSortCol === 'classification'
+        ? getAccountClassification(a)
+        : (a[tableSortCol as keyof Account] ?? '')
+      const bv: any = tableSortCol === 'classification'
+        ? getAccountClassification(b)
+        : (b[tableSortCol as keyof Account] ?? '')
+      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
       return tableSortDir === 'asc' ? cmp : -cmp
     })
     return list
   }, [accounts, tableSortCol, tableSortDir, tableFilter])
 
-  const toggleTableSort = (col: keyof Account) => {
+  const toggleTableSort = (col: SortCol) => {
     if (tableSortCol === col) setTableSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setTableSortCol(col); setTableSortDir('asc') }
   }
@@ -63,14 +72,12 @@ export function AccountsTable() {
     setEditCell(null)
   }
 
-  const toggleBoolCell = async (account: Account, field: 'includeInNetWorth' | 'isLiability') => {
+  // V2.7.4 D040 — set tri-state classification, atomically writing both fields
+  // per the mutual-exclusion mapping (see lib/accountClassification.ts).
+  const setClassification = async (account: Account, c: AccountClassification) => {
     if (!account.id) return
-    // includeInNetWorth default is true (undefined === included), so treat undefined as true
-    // isLiability default is false (undefined === not a liability), so treat undefined as false
-    const currentVal = field === 'includeInNetWorth'
-      ? account[field] !== false
-      : !!account[field]
-    await updateAccount(account.id, { ...account, [field]: !currentVal })
+    const flags = classificationToFlags(c)
+    await updateAccount(account.id, { ...account, ...flags })
   }
 
   const handleAddClick = () => { setEditingAccount(null); setModalOpen(true) }
@@ -145,9 +152,8 @@ export function AccountsTable() {
                     { key: 'thresholdValue', label: 'Threshold' },
                     { key: 'group', label: 'Group' },
                     { key: 'color', label: 'Color' },
-                    { key: 'includeInNetWorth', label: 'Net Worth' },
-                    { key: 'isLiability', label: 'Liability' },
-                  ] as { key: keyof Account; label: string }[]).map(col => (
+                    { key: 'classification', label: 'Classification' },
+                  ] as { key: SortCol; label: string }[]).map(col => (
                     <th
                       key={col.key}
                       onClick={() => col.key !== 'color' && toggleTableSort(col.key)}
@@ -259,26 +265,36 @@ export function AccountsTable() {
                       />
                     </td>
 
-                    {/* includeInNetWorth */}
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => toggleBoolCell(account, 'includeInNetWorth')}
-                        className={`w-9 h-5 rounded-full transition-colors ${account.includeInNetWorth !== false ? 'bg-primary' : 'bg-muted'}`}
-                        title={account.includeInNetWorth !== false ? 'Included in net worth' : 'Excluded from net worth'}
-                      >
-                        <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${account.includeInNetWorth !== false ? 'translate-x-4' : 'translate-x-0'}`} />
-                      </button>
-                    </td>
-
-                    {/* isLiability */}
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => toggleBoolCell(account, 'isLiability')}
-                        className={`w-9 h-5 rounded-full transition-colors ${account.isLiability ? 'bg-red-500' : 'bg-muted'}`}
-                        title={account.isLiability ? 'Is a liability' : 'Not a liability'}
-                      >
-                        <span className={`block w-4 h-4 rounded-full bg-white shadow transition-transform mx-0.5 ${account.isLiability ? 'translate-x-4' : 'translate-x-0'}`} />
-                      </button>
+                    {/* V2.7.4 D040 — Tri-state classification (replaces NW + Liability toggles) */}
+                    <td className="px-3 py-2">
+                      {(() => {
+                        const current = getAccountClassification(account)
+                        return (
+                          <div className="inline-flex rounded-lg border border-border overflow-hidden text-xs">
+                            <button
+                              onClick={() => setClassification(account, 'liability')}
+                              title="Liability (e.g. credit card debt, loans)"
+                              className={`px-2 py-1 transition-colors ${current === 'liability' ? 'bg-red-500 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-red-500/10'}`}
+                            >
+                              Liability
+                            </button>
+                            <button
+                              onClick={() => setClassification(account, 'neither')}
+                              title="Neither asset nor liability (excluded from Net Worth)"
+                              className={`px-2 py-1 border-x border-border transition-colors ${current === 'neither' ? 'bg-gray-400 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-gray-400/10'}`}
+                            >
+                              Neither
+                            </button>
+                            <button
+                              onClick={() => setClassification(account, 'asset')}
+                              title="Asset (counted in Net Worth)"
+                              className={`px-2 py-1 transition-colors ${current === 'asset' ? 'bg-emerald-500 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-emerald-500/10'}`}
+                            >
+                              Asset
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </td>
 
                     {/* Actions */}

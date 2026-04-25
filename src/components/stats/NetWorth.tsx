@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import type { Account } from '@/types/database'
 import { useMemo, useState, useEffect } from 'react'
 import {
   LineChart,
@@ -127,7 +128,14 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
   const netWorthData = useMemo(() => {
     if (!accounts || !allTransactions) return []
 
-    const includedAccounts = accounts.filter(Boolean).filter(acc => acc.includeInNetWorth !== false)
+    // V2.7.4 D041 — tri-state classification is the ONLY classifier.
+    // Liability accounts: isLiability=true (regardless of balance sign).
+    // Asset accounts: includeInNetWorth=true AND isLiability !== true.
+    // Neither: excluded from both totals.
+    // No negative-balance fallback. Bank account that goes overdraft stays a
+    // reduced asset (does not flip to liability automatically).
+    const liabilityAccounts = accounts.filter(Boolean).filter((a) => a.isLiability === true)
+    const assetAccounts = accounts.filter(Boolean).filter((a) => a.isLiability !== true && a.includeInNetWorth === true)
 
     const getDayEnd = (day: Date): number => {
       const d = new Date(day)
@@ -137,52 +145,54 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
 
     const safeTransactions = allTransactions.filter(Boolean)
 
-    return getDataPoints.map((day) => {
-      let totalAssets = 0
-      let totalLiabilities = 0
-      const dayEndTs = getDayEnd(day)
-
-      includedAccounts.forEach((account) => {
-        let balance = account.balance
-
-        safeTransactions.forEach((tx) => {
-          const txTs = getDateTimestamp(tx.date)
-          if (txTs > dayEndTs) {
-            if (tx.fromAccountId === account.id) {
-              if (tx.transactionType === 'EXPENSE' || tx.transactionType === 'TRANSFER') {
-                balance += tx.amount
-              } else if (tx.transactionType === 'INCOME') {
-                balance -= tx.amount
-              }
-            }
-            if (tx.toAccountId === account.id && tx.transactionType === 'TRANSFER') {
+    // Reverse-time balance derivation: for each historical day, walk transactions
+    // newer than that day and undo their effect on current balance.
+    const balanceAt = (account: Account, dayEndTs: number): number => {
+      let balance = account.balance
+      safeTransactions.forEach((tx) => {
+        const txTs = getDateTimestamp(tx.date)
+        if (txTs > dayEndTs) {
+          if (tx.fromAccountId === account.id) {
+            if (tx.transactionType === 'EXPENSE' || tx.transactionType === 'TRANSFER') {
+              balance += tx.amount
+            } else if (tx.transactionType === 'INCOME') {
               balance -= tx.amount
             }
           }
-        })
-
-        if (account.isLiability) {
-          totalLiabilities += Math.abs(balance)
-        } else if (balance < 0) {
-          totalLiabilities += Math.abs(balance)
-        } else {
-          totalAssets += balance
+          if (tx.toAccountId === account.id && tx.transactionType === 'TRANSFER') {
+            balance -= tx.amount
+          }
         }
       })
+      return balance
+    }
+
+    return getDataPoints.map((day) => {
+      const dayEndTs = getDayEnd(day)
+
+      let totalAssets = 0
+      assetAccounts.forEach((acc) => { totalAssets += balanceAt(acc, dayEndTs) })
+
+      // Liability sum is signed (CC balances are typically negative).
+      // Net Worth = assets + signed_liability_sum (subtracts naturally).
+      // Display: Math.abs() so the chart shows positive ₹ owed.
+      let totalLiabilitiesSigned = 0
+      liabilityAccounts.forEach((acc) => { totalLiabilitiesSigned += balanceAt(acc, dayEndTs) })
 
       return {
         date: formatDateLabel(day),
         fullDate: day.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
-        netWorth: parseFloat((totalAssets - totalLiabilities).toFixed(2)),
+        netWorth: parseFloat((totalAssets + totalLiabilitiesSigned).toFixed(2)),
         assets: parseFloat(totalAssets.toFixed(2)),
-        liabilities: parseFloat(totalLiabilities.toFixed(2)),
+        liabilities: parseFloat(Math.abs(totalLiabilitiesSigned).toFixed(2)),
       }
     })
   }, [accounts, allTransactions, getDataPoints, granularity])
 
   const hasIncludedAccounts = useMemo(() => {
     if (!accounts) return true
-    return accounts.filter(Boolean).some(acc => acc.includeInNetWorth !== false)
+    // True if any account is classified Asset OR Liability.
+    return accounts.filter(Boolean).some((a) => a.isLiability === true || a.includeInNetWorth === true)
   }, [accounts])
 
   if (!accounts || !allTransactions) {
@@ -194,9 +204,9 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-lg font-semibold mb-4">Net Worth Trend</h3>
         <div className="text-center py-8 space-y-2">
-          <p className="text-muted-foreground">No accounts are included in the net worth calculation.</p>
+          <p className="text-muted-foreground">No accounts classified as Asset or Liability.</p>
           <p className="text-sm text-muted-foreground">
-            Go to <strong>Accounts</strong> and enable the net worth toggle for at least one account.
+            Go to <strong>HUB → Accounts</strong> and set classification (Asset / Neither / Liability) for at least one account.
           </p>
         </div>
       </div>
