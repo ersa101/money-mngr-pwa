@@ -3,6 +3,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import type { Transaction } from '@/types/database';
+import { sortByName } from '@/lib/sortUtils';
 import { useState, useMemo } from 'react'
 import {
   LineChart,
@@ -158,7 +159,7 @@ export function AccountBalanceHistory({
 
         {/* Account Selector */}
         <div className="flex flex-wrap gap-2">
-          {accounts.filter(Boolean).map((account) => (
+          {sortByName(accounts.filter(Boolean)).map((account) => (
             <button
               key={`account-btn-${account.id}`}
               onClick={() => setSelectedAccountId(account.id || null)}

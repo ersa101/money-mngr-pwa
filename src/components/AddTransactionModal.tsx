@@ -7,6 +7,7 @@ import { pushToSheets } from '@/lib/syncService';
 import { parseSMS } from '@/lib/smsParser';
 import { llmService } from '@/lib/llmService';
 import { computeSourceHash } from '@/lib/importUtils';
+import { sortByName } from '@/lib/sortUtils';
 import { formatCurrency } from '@/lib/currency-utils';
 import { Transaction, Account, Category } from '@/types/database';
 import { Button } from '@/components/ui/button';
@@ -761,7 +762,7 @@ export function AddTransactionModal({
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent className="bg-white border-gray-200">
-                  {accounts.map((account) => (
+                  {sortByName(accounts).map((account) => (
                     <SelectItem
                       key={account.id}
                       value={account.id!.toString()}
@@ -833,8 +834,7 @@ export function AddTransactionModal({
                   <SelectValue placeholder="Select account" />
                 </SelectTrigger>
                 <SelectContent className="bg-white border-gray-200">
-                  {accounts
-                    .filter(a => transactionType !== 'TRANSFER' || a.id?.toString() !== fromAccountId)
+                  {sortByName(accounts.filter(a => transactionType !== 'TRANSFER' || a.id?.toString() !== fromAccountId))
                     .map((account) => (
                       <SelectItem
                         key={account.id}

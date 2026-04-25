@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
+import { sortByName } from '@/lib/sortUtils';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -151,7 +152,7 @@ export function BulkEditModal({
                 <SelectItem value="__keep__" className="text-gray-500">
                   Keep original (no change)
                 </SelectItem>
-                {accounts.map((account) => (
+                {sortByName(accounts).map((account) => (
                   <SelectItem
                     key={account.id}
                     value={account.id!.toString()}

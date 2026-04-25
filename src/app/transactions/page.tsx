@@ -9,6 +9,7 @@ import { TransactionList } from '@/components/transactions/TransactionList'
 import { SaveFilterModal, computeBillingDates } from '@/components/transactions/SaveFilterModal'
 import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
+import { sortByName } from '@/lib/sortUtils'
 import toast from 'react-hot-toast'
 
 type TypeFilter = 'all' | 'expense' | 'income' | 'transfer'
@@ -186,7 +187,9 @@ function TransactionsPage() {
       // Also include csvCategory as a fallback for CSV-imported transactions
       else if (tx.csvCategory) cats.add(tx.csvCategory)
     })
-    return Array.from(cats).sort()
+    return Array.from(cats).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    )
   }, [transactions, categories, typeFilter])
 
   // Subcategories for the currently selected filterCategory
@@ -194,7 +197,9 @@ function TransactionsPage() {
     if (!categories || !filterCategory) return []
     const parentCat = categories.find(c => c.name === filterCategory && !c.parentId)
     if (!parentCat) return []
-    return categories.filter(c => c.parentId === parentCat.id)
+    return categories
+      .filter(c => c.parentId === parentCat.id)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
   }, [categories, filterCategory])
 
   // Clear category + subcategory when type changes
@@ -697,7 +702,7 @@ function TransactionsPage() {
                     className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All Accounts</option>
-                    {accounts?.map((acc) => (
+                    {(accounts ? sortByName(accounts) : []).map((acc) => (
                       <option key={`filter-acc-${acc.id}`} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>

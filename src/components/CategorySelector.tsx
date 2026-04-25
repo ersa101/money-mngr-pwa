@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { Category } from '@/types/database'
+import { sortByName } from '@/lib/sortUtils'
 import { ChevronDown, ChevronRight, Check } from 'lucide-react'
 
 interface CategorySelectorProps {
@@ -27,10 +28,10 @@ export function CategorySelector({
   const [expandedParent, setExpandedParent] = useState<number | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Filter and organize categories
+  // Filter and organize categories (A-Z sorted at parent + child level — D046)
   const { parentCategories, childrenByParent } = useMemo(() => {
     const filtered = categories.filter((c) => c.type === type)
-    const parents = filtered.filter((c) => !c.parentId)
+    const parents = sortByName(filtered.filter((c) => !c.parentId))
     const children = new Map<number, Category[]>()
 
     for (const cat of filtered) {
@@ -40,6 +41,11 @@ export function CategorySelector({
         }
         children.get(cat.parentId)!.push(cat)
       }
+    }
+
+    // Sort each child group A-Z
+    for (const [pid, group] of children.entries()) {
+      children.set(pid, sortByName(group))
     }
 
     return { parentCategories: parents, childrenByParent: children }

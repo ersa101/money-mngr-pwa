@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import type { FilterPreset } from '@/types/database';
 import { Button } from '@/components/ui/button';
+import { sortByName } from '@/lib/sortUtils';
 import { X, Bookmark } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -281,7 +282,7 @@ export function SaveFilterModal({
               className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-purple-500 text-sm"
             >
               <option value="">All Accounts</option>
-              {accounts.map(acc => (
+              {sortByName(accounts).map(acc => (
                 <option key={acc.id} value={acc.id}>{acc.name}</option>
               ))}
             </select>
@@ -296,7 +297,7 @@ export function SaveFilterModal({
               className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-purple-500 text-sm"
             >
               <option value="">All Categories</option>
-              {topCategories.map(cat => (
+              {sortByName(topCategories).map(cat => (
                 <option key={cat.id} value={cat.id}>
                   {cat.icon ? `${cat.icon} ` : ''}{cat.name}
                 </option>
@@ -314,7 +315,7 @@ export function SaveFilterModal({
                 className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-purple-500 text-sm"
               >
                 <option value="">All SubCategories</option>
-                {subCategories.map(sc => (
+                {sortByName(subCategories).map(sc => (
                   <option key={sc.id} value={sc.id}>{sc.name}</option>
                 ))}
               </select>
