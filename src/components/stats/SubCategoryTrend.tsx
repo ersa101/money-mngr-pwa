@@ -60,7 +60,7 @@ export function SubCategoryTrend({
   // Build category lookup map
   const categoryMap = useMemo(() => {
     if (!categories) return new Map<number, Category>()
-    return new Map(categories.map(c => [c.id!, c]))
+    return new Map(categories.filter(Boolean).map(c => [c.id!, c]))
   }, [categories])
 
   // Get subcategories (categories with parentId)

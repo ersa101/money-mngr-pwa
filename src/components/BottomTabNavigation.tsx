@@ -15,11 +15,11 @@ export function BottomTabNavigation() {
   }
 
   const tabs = [
-    { href: '/home', icon: Home, label: 'Home' },
-    { href: '/transactions', icon: CreditCard, label: 'Transactions' },
-    { href: '/stats', icon: BarChart3, label: 'Stats' },
-    { href: '/fain', icon: Brain, label: 'FAIN' },
-    { href: '/settings', icon: Settings, label: 'Settings' },
+    { href: '/home', icon: Home, label: 'BRIEF' },
+    { href: '/transactions', icon: CreditCard, label: 'TALLY' },
+    { href: '/stats', icon: BarChart3, label: 'RADAR' },
+    { href: '/fain', icon: Brain, label: 'SAGE' },
+    { href: '/settings', icon: Settings, label: 'HUB' },
   ]
 
   return (
@@ -33,13 +33,14 @@ export function BottomTabNavigation() {
             key={href}
             href={href}
             title={label}
-            className={`flex-1 flex flex-col items-center justify-center transition-colors min-h-[44px] ${
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors min-h-[44px] ${
               isActive(href)
                 ? 'text-blue-600 bg-blue-50'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            <Icon size={22} />
+            <Icon size={20} />
+            <span className="text-[10px] font-medium leading-none">{label}</span>
           </Link>
         ))}
       </div>

@@ -300,6 +300,8 @@ async function writeAllRows(sheetName: string, rows: string[][]): Promise<void> 
   }
 }
 
+const DATE_FIELDS = new Set(['createdAt', 'updatedAt', 'date', 'detectedMonth', 'computedAt', 'timestamp']);
+
 /** Serialize a data object into a string row, with userId prepended as col 0. */
 function serializeRow(item: any, headers: readonly string[], userId: string): string[] {
   return headers.map((header) => {
@@ -307,6 +309,7 @@ function serializeRow(item: any, headers: readonly string[], userId: string): st
     const value = item[header];
     if (value === undefined || value === null) return '';
     if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+    if (DATE_FIELDS.has(header) && typeof value === 'number') return new Date(value).toISOString();
     return String(value);
   });
 }

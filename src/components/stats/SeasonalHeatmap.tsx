@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Play, RefreshCw, Grid3x3 } from 'lucide-react'
+import { RefreshCw, Grid3x3 } from 'lucide-react'
 
 const CATEGORY_COLORS = [
   '#6366f1', '#f59e0b', '#10b981', '#ef4444',
@@ -33,7 +33,6 @@ function formatWeek(isoDate: string): string {
   return `${d.toLocaleString('default', { month: 'short' })} ${d.getDate()}, ${d.getFullYear()}`
 }
 
-// Returns [{weekIdx, label}] for month boundaries
 function buildMonthLabels(weeks: string[]): { weekIdx: number; label: string }[] {
   const labels: { weekIdx: number; label: string }[] = []
   let lastMonth = -1
@@ -58,6 +57,11 @@ export function SeasonalHeatmap() {
     x: number; y: number; category: string; week: string; amount: number
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const lastTxCountRef = useRef<number>(-1)
+
+  const txCount = useLiveQuery(async () => {
+    return db.transactions.count()
+  }, [])
 
   const cached = useLiveQuery(async () => {
     return db.table('computedInsights').where('key').equals('seasonal_heatmap').first()
@@ -65,17 +69,11 @@ export function SeasonalHeatmap() {
 
   const isCacheValid = useCallback(() => {
     if (!cached) return false
-    return Date.now() - new Date(cached.computedAt).getTime() < 7 * 24 * 60 * 60 * 1000 && cached.version === 2
-  }, [cached])
-
-  const loadFromCache = useCallback(() => {
-    if (cached) {
-      setResult(JSON.parse(cached.value))
-      setComputedAt(cached.computedAt)
-    }
+    return Date.now() - new Date(cached.computedAt).getTime() < 7 * 24 * 60 * 60 * 1000 && cached.version === 3
   }, [cached])
 
   const compute = useCallback(async () => {
+    if (computing) return
     setComputing(true)
     setError(null)
     try {
@@ -83,7 +81,6 @@ export function SeasonalHeatmap() {
       const categories = await db.categories.toArray()
       const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
-      // Build last 52 week starts (Mondays)
       const now = new Date()
       const weeks: string[] = []
       for (let i = 51; i >= 0; i--) {
@@ -92,7 +89,6 @@ export function SeasonalHeatmap() {
         weeks.push(getMonday(d).toISOString().split('T')[0])
       }
 
-      // Top 15 expense sub-categories by total spend
       const totalBySubCat = new Map<string, number>()
       for (const t of transactions.filter(Boolean)) {
         if (t.transactionType !== 'EXPENSE' || !t.subCategoryId) continue
@@ -104,7 +100,6 @@ export function SeasonalHeatmap() {
         .slice(0, 15)
         .map(([name]) => name)
 
-      // Build cells [catIdx][weekIdx]
       const cells: number[][] = top15.map(() => new Array(52).fill(0))
 
       for (const t of transactions.filter(Boolean)) {
@@ -126,7 +121,7 @@ export function SeasonalHeatmap() {
         key: 'seasonal_heatmap',
         value: JSON.stringify(computed),
         computedAt: now2,
-        version: 2,
+        version: 3,
       })
 
       setResult(computed)
@@ -136,14 +131,22 @@ export function SeasonalHeatmap() {
     } finally {
       setComputing(false)
     }
-  }, [db])
+  }, [db, computing])
 
+  // Auto-compute on mount and when txCount changes
   useEffect(() => {
-    if (cached && isCacheValid() && !result && !computing) {
-      loadFromCache()
+    if (txCount === undefined) return
+    if (txCount === lastTxCountRef.current) return
+    lastTxCountRef.current = txCount
+
+    if (isCacheValid() && cached) {
+      setResult(JSON.parse(cached.value))
+      setComputedAt(cached.computedAt)
+    } else {
+      compute()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cached])
+  }, [txCount])
 
   const daysAgo = computedAt
     ? Math.floor((Date.now() - new Date(computedAt).getTime()) / 86400000)
@@ -167,18 +170,15 @@ export function SeasonalHeatmap() {
       </div>
       <p className="text-xs text-gray-500 mb-4">Weekly spend intensity per sub-category — last 52 weeks, top 15</p>
 
-      {!result && (
-        <div className="flex flex-col items-center justify-center py-12 gap-3">
-          <button
-            onClick={compute}
-            disabled={computing}
-            className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition"
-          >
-            {computing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {computing ? 'Computing…' : '▶ Compute'}
-          </button>
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+      {computing && !result && (
+        <div className="flex items-center justify-center py-12 gap-2 text-gray-500 text-sm">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Computing…
         </div>
+      )}
+
+      {error && !result && (
+        <p className="text-red-400 text-xs text-center py-8">{error}</p>
       )}
 
       {result && (
@@ -189,13 +189,12 @@ export function SeasonalHeatmap() {
                 width={LABEL_W + WEEK_COUNT * (CELL_W + CELL_GAP)}
                 height={HEADER_H + result.categories.length * (CELL_H + CELL_GAP) + 4}
               >
-                {/* Month column labels */}
                 {buildMonthLabels(result.weeks).map(({ weekIdx, label }) => (
                   <text
                     key={`month-${weekIdx}`}
                     x={LABEL_W + weekIdx * (CELL_W + CELL_GAP)}
                     y={14}
-                    fill="#9ca3af"
+                    fill="#374151"
                     fontSize={9}
                   >
                     {label}
@@ -211,14 +210,14 @@ export function SeasonalHeatmap() {
                         x={LABEL_W - 6}
                         y={y + CELL_H / 2 + 4}
                         textAnchor="end"
-                        fill="#6b7280"
+                        fill="#374151"
                         fontSize={10}
                       >
                         {cat.length > 14 ? cat.slice(0, 14) + '…' : cat}
                       </text>
                       {result.weeks.map((week, weekIdx) => {
                         const amount = result.cells[catIdx][weekIdx]
-                        const opacity = amount === 0 ? 0.06 : 0.15 + 0.85 * (amount / result.maxAmount)
+                        const opacity = amount === 0 ? 0.06 : 0.20 + 0.80 * (amount / result.maxAmount)
                         const x = LABEL_W + weekIdx * (CELL_W + CELL_GAP)
                         return (
                           <rect
@@ -264,7 +263,6 @@ export function SeasonalHeatmap() {
             </div>
           </div>
 
-          {/* Pattern guide */}
           <div className="mt-4 flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-gray-500">Spend intensity:</span>
@@ -277,19 +275,12 @@ export function SeasonalHeatmap() {
               ))}
               <span className="text-xs text-gray-400 ml-1">Low → High</span>
             </div>
-            <div className="flex items-center gap-1 ml-auto">
-              <p className="text-xs text-gray-500">
+            {daysAgo !== null && (
+              <p className="text-xs text-gray-500 ml-auto">
                 Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
+                {computing && <RefreshCw className="inline w-3 h-3 ml-1 animate-spin" />}
               </p>
-              <button
-                onClick={compute}
-                disabled={computing}
-                className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition ml-2"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Recompute
-              </button>
-            </div>
+            )}
           </div>
         </>
       )}

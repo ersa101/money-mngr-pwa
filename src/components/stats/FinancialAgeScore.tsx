@@ -55,7 +55,7 @@ export function FinancialAgeScore() {
 
     // Find invest categories
     const investKeywords = ['investment', 'invest', 'stock', 'mutual fund', 'mf', 'sip', 'nps', 'ppf', 'fd']
-    const catMap = new Map(categories.map((c) => [c.id!, c.name.toLowerCase()]))
+    const catMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name.toLowerCase()]))
 
     for (const t of transactions.filter(Boolean)) {
       const month = t.date.slice(0, 7)

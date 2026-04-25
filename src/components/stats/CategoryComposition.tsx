@@ -149,7 +149,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
             cy="50%"
             labelLine={false}
             label={({ percent }) => percent >= 0.03 ? `${(percent * 100).toFixed(0)}%` : ''}
-            outerRadius={100}
+            outerRadius={110}
             fill="#8884d8"
             dataKey="value"
             onClick={(entry) => {
@@ -176,7 +176,6 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
               border: '1px solid var(--border)',
             }}
           />
-          <Legend />
         </PieChart>
       </ResponsiveContainer>
 

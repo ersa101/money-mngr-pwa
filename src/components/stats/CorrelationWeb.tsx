@@ -20,6 +20,7 @@ interface MatrixResult {
   matrix: number[][]
   edges: CorrelationEdge[]
   hasEnoughData: boolean
+  isFallback: boolean
 }
 
 const SVG_W = 500
@@ -70,7 +71,7 @@ export function CorrelationWeb() {
     if (!cached) return false
     return (
       Date.now() - new Date(cached.computedAt).getTime() < 7 * 24 * 60 * 60 * 1000 &&
-      cached.version === 2
+      cached.version === 3
     )
   }, [cached])
 
@@ -91,13 +92,9 @@ export function CorrelationWeb() {
       const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
       const months = new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))
-      if (months.size < 6) {
-        const res: MatrixResult = { names: [], totals: [], avgMonthlys: [], matrix: [], edges: [], hasEnoughData: false }
-        setResult(res)
-        return
-      }
 
-      const raw = transactions
+      // Try subcategory-level first
+      let raw = transactions
         .filter(Boolean)
         .filter((t) => t.transactionType === 'EXPENSE')
         .map((t) => ({
@@ -108,6 +105,21 @@ export function CorrelationWeb() {
         }))
         .filter((t) => !!t.subCategoryName)
 
+      // Fall back to category-level when no subcategory data exists
+      const isFallback = raw.length === 0
+      if (isFallback) {
+        raw = transactions
+          .filter(Boolean)
+          .filter((t) => t.transactionType === 'EXPENSE' && t.categoryId)
+          .map((t) => ({
+            date: t.date,
+            amount: t.amount,
+            transactionType: 'EXPENSE' as const,
+            subCategoryName: t.categoryId ? subCatMap.get(t.categoryId) : undefined,
+          }))
+          .filter((t) => !!t.subCategoryName)
+      }
+
       const series = buildSubCategoryMonthlySeries(raw, 15)
       const matrix = computeFullMatrix(series)
       const edges = computeCorrelations(series, 0.3)
@@ -117,14 +129,14 @@ export function CorrelationWeb() {
       const avgMonthlys = totals.map((t) => t / monthCount)
       const names = series.map((s) => s.subCategoryName)
 
-      const webResult: MatrixResult = { names, totals, avgMonthlys, matrix, edges, hasEnoughData: true }
+      const webResult: MatrixResult = { names, totals, avgMonthlys, matrix, edges, hasEnoughData: months.size >= 3, isFallback }
       const now = new Date().toISOString()
 
       await db.table('computedInsights').put({
         key: 'correlation_web',
         value: JSON.stringify(webResult),
         computedAt: now,
-        version: 2,
+        version: 3,
       })
 
       setResult(webResult)
@@ -163,7 +175,7 @@ export function CorrelationWeb() {
 
   // --- Matrix view ---
   const matrixView = useMemo(() => {
-    if (!result?.hasEnoughData || !result.names.length) return null
+    if (!result?.names.length) return null
     const n = result.names.length
     const cellSize = Math.min(28, Math.floor(300 / n))
     const labelW = 90
@@ -270,7 +282,7 @@ export function CorrelationWeb() {
   }, [selectedNode, result])
 
   const chordView = useMemo(() => {
-    if (!result?.hasEnoughData || !result.names.length) return null
+    if (!result?.names.length) return null
     const nodeMap = new Map(
       result.names.map((name, i) => [name, { name, total: result.totals[i], ...positions[i] }])
     )
@@ -330,7 +342,7 @@ export function CorrelationWeb() {
 
   // --- Bubble view ---
   const bubbleView = useMemo(() => {
-    if (!result?.hasEnoughData || !result.edges.length) return null
+    if (!result?.edges.length) return null
     const filtered = result.edges.filter((e) => Math.abs(e.r) > 0.3)
     if (!filtered.length) return (
       <p className="text-gray-400 text-xs text-center py-8">No pairs with |r| &gt; 0.3 to display.</p>
@@ -425,15 +437,23 @@ export function CorrelationWeb() {
         <p className="text-red-400 text-xs text-center py-4">{error}</p>
       )}
 
-      {!computing && result && !result.hasEnoughData && (
-        <div className="flex items-center justify-center py-12">
-          <p className="text-gray-500 text-sm text-center max-w-xs">
-            Need at least 6 months of data to compute correlations.
-          </p>
-        </div>
+      {!computing && result && result.isFallback && (
+        <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
+          No sub-category data found — showing category-level correlations. Assign sub-categories to transactions for deeper analysis.
+        </p>
       )}
 
-      {!computing && result?.hasEnoughData && (
+      {!computing && result && !result.hasEnoughData && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+          Limited data — correlations shown may not be statistically significant. Add more transactions over time for stronger patterns.
+        </p>
+      )}
+
+      {!computing && result && !result.names.length && (
+        <p className="text-xs text-gray-500 text-center py-8">Not enough expense data to compute correlations.</p>
+      )}
+
+      {!computing && result && result.names.length > 0 && (
         <>
           {/* View toggle */}
           <div className="flex gap-1 mb-4">

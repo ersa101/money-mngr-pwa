@@ -16,11 +16,11 @@ import {
 import { useSidebar } from '@/contexts/SidebarContext'
 
 const NAV_ITEMS = [
-  { href: '/home',         icon: Home,        label: 'Home' },
-  { href: '/transactions', icon: CreditCard,  label: 'Transactions' },
-  { href: '/stats',        icon: BarChart3,   label: 'Stats' },
-  { href: '/fain',         icon: Brain,       label: 'FAIN' },
-  { href: '/settings',     icon: Settings,    label: 'Settings' },
+  { href: '/home',         icon: Home,        label: 'BRIEF' },
+  { href: '/transactions', icon: CreditCard,  label: 'TALLY' },
+  { href: '/stats',        icon: BarChart3,   label: 'RADAR' },
+  { href: '/fain',         icon: Brain,       label: 'SAGE' },
+  { href: '/settings',     icon: Settings,    label: 'HUB' },
 ]
 
 export function Sidebar() {

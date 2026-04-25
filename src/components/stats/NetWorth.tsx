@@ -135,6 +135,8 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
       return d.getTime()
     }
 
+    const safeTransactions = allTransactions.filter(Boolean)
+
     return getDataPoints.map((day) => {
       let totalAssets = 0
       let totalLiabilities = 0
@@ -143,7 +145,7 @@ export function NetWorth({ dateRange, period = 'monthly' }: NetWorthProps) {
       includedAccounts.forEach((account) => {
         let balance = account.balance
 
-        allTransactions.forEach((tx) => {
+        safeTransactions.forEach((tx) => {
           const txTs = getDateTimestamp(tx.date)
           if (txTs > dayEndTs) {
             if (tx.fromAccountId === account.id) {

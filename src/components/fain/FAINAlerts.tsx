@@ -302,7 +302,7 @@ export function FAINAlerts() {
         status={leadLagResult ? 'WATCH' : 'NORMAL'}
         onRefresh={runLeadLag}
         loading={leadLagLoading}
-        showFeedback={!leadLagError}
+        showFeedback={!leadLagError && leadLagResult !== null}
       />
 
       {/* A-5: Savings Goal */}
@@ -315,7 +315,7 @@ export function FAINAlerts() {
           status="NORMAL"
           onRefresh={runSavingsGoal}
           loading={savingsLoading}
-          showFeedback={!savingsError}
+          showFeedback={!savingsError && savingsResult !== null}
         >
           {savingsResult && (
             <div className="flex flex-wrap gap-2 mt-2">
@@ -345,7 +345,7 @@ export function FAINAlerts() {
         status={lifeEventResult ? 'WATCH' : 'NORMAL'}
         onRefresh={runLifeEvent}
         loading={lifeEventLoading}
-        showFeedback={!lifeEventError}
+        showFeedback={!lifeEventError && lifeEventResult !== null}
       >
         {lifeEventResult && !lifeEventConfirming && (
           <div className="flex flex-wrap gap-2 mt-2">

@@ -7,9 +7,7 @@ import type { Account, Category, Transaction } from '@/types/database'
 import { Button } from '@/components/ui/button'
 import { Settings, Tag, Landmark, Pencil, Trash2, Plus, X, Check, FolderOpen, ChevronDown, ChevronRight, TrendingUp, TrendingDown, KeyRound, Eye, EyeOff, LogOut } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
-import { BackupSection } from '@/components/settings/BackupSection'
-import { SnapshotSection } from '@/components/settings/SnapshotSection'
-import { LocalBackupSection } from '@/components/settings/LocalBackupSection'
+import { UnifiedBackupSection } from '@/components/settings/UnifiedBackupSection'
 import { AccountsTable } from '@/components/settings/AccountsTable'
 import toast from 'react-hot-toast'
 import { pushToSheets } from '@/lib/syncService'
@@ -346,8 +344,9 @@ export default function SettingsPage() {
                 <Settings className="w-6 h-6" />
               </div>
               <div>
+                <h1 className="text-2xl font-bold text-gray-900">HUB</h1>
                 <p className="text-sm text-muted-foreground">
-                  Manage categories, accounts, and data
+                  Handling, Utility & Backup
                 </p>
               </div>
             </div>
@@ -524,9 +523,7 @@ export default function SettingsPage() {
         {/* Data Management Tab */}
         {activeTab === 'data' && (
           <div className="space-y-6">
-            <BackupSection />
-            <SnapshotSection />
-            <LocalBackupSection />
+            <UnifiedBackupSection />
 
             {/* Danger Zone */}
             <div className="bg-card rounded-lg border border-destructive/50 p-6">
