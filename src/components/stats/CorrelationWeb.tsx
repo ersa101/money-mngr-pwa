@@ -5,15 +5,27 @@ import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   buildSubCategoryMonthlySeries,
-  computeCorrelations,
-  computeFullMatrix,
+  computeMatrixWithAlgo,
+  computeCorrelationsWithAlgo,
+  selectAlgo,
+  type CorrelationAlgo,
 } from '@/lib/correlationUtils'
 import type { CorrelationEdge } from '@/lib/correlationUtils'
 import { Network } from 'lucide-react'
 
 type ViewMode = 'matrix' | 'chord' | 'bubble'
 
+interface LeaderboardEntry {
+  name: string
+  total: number
+}
+
 interface MatrixResult {
+  // Display mode: 'correlation' renders 3 view types; 'leaderboard' shows top-spend list (n<3 — D042 + new-user retention)
+  displayMode: 'correlation' | 'leaderboard'
+  algo: CorrelationAlgo
+  monthsCount: number
+  // Correlation mode
   names: string[]
   totals: number[]
   avgMonthlys: number[]
@@ -21,6 +33,8 @@ interface MatrixResult {
   edges: CorrelationEdge[]
   hasEnoughData: boolean
   isFallback: boolean
+  // Leaderboard mode (n<3)
+  leaderboard: LeaderboardEntry[]
 }
 
 const SVG_W = 500
@@ -71,7 +85,7 @@ export function CorrelationWeb() {
     if (!cached) return false
     return (
       Date.now() - new Date(cached.computedAt).getTime() < 7 * 24 * 60 * 60 * 1000 &&
-      cached.version === 3
+      cached.version === 4
     )
   }, [cached])
 
@@ -88,10 +102,66 @@ export function CorrelationWeb() {
     setError(null)
     try {
       const transactions = await db.transactions.toArray()
-      const categories = await db.categories.toArray()
-      const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
+      const accounts = await db.accounts.toArray()
+      const categoriesRaw = await db.categories.toArray()
+
+      // V2.7.4 D045 — exclude top-level categories matching account names (TRANSFER pollution)
+      const accountNamesLower = new Set(accounts.filter(Boolean).map((a) => a.name.toLowerCase()))
+      const categories = categoriesRaw.filter(Boolean).filter((c) => {
+        if (c.parentId) return true
+        return !accountNamesLower.has(c.name.toLowerCase())
+      })
+      const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
 
       const months = new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))
+      const monthsCount = months.size
+      const algo = selectAlgo(monthsCount)
+      const now = new Date().toISOString()
+
+      // n<3 -> leaderboard mode (D042 fallback option A+D)
+      if (algo === 'none') {
+        const expenseTxns = transactions
+          .filter(Boolean)
+          .filter((t) => t.transactionType === 'EXPENSE')
+        // Aggregate by subcategory (or fall back to category if no subcat)
+        const totals = new Map<string, number>()
+        for (const t of expenseTxns) {
+          const name = t.subCategoryId
+            ? subCatMap.get(t.subCategoryId)
+            : t.categoryId
+              ? subCatMap.get(t.categoryId)
+              : undefined
+          if (!name) continue
+          totals.set(name, (totals.get(name) ?? 0) + t.amount)
+        }
+        const leaderboard = Array.from(totals.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([name, total]) => ({ name, total }))
+
+        const webResult: MatrixResult = {
+          displayMode: 'leaderboard',
+          algo: 'none',
+          monthsCount,
+          names: [],
+          totals: [],
+          avgMonthlys: [],
+          matrix: [],
+          edges: [],
+          hasEnoughData: false,
+          isFallback: false,
+          leaderboard,
+        }
+        await db.table('computedInsights').put({
+          key: 'correlation_web',
+          value: JSON.stringify(webResult),
+          computedAt: now,
+          version: 4,
+        })
+        setResult(webResult)
+        setComputedAt(now)
+        return
+      }
 
       // Try subcategory-level first
       let raw = transactions
@@ -121,22 +191,33 @@ export function CorrelationWeb() {
       }
 
       const series = buildSubCategoryMonthlySeries(raw, 15)
-      const matrix = computeFullMatrix(series)
-      const edges = computeCorrelations(series, 0.3)
+      const matrix = computeMatrixWithAlgo(series, algo)
+      const edges = computeCorrelationsWithAlgo(series, algo, 0.3)
 
       const monthCount = months.size || 1
       const totals = series.map((s) => s.monthly.reduce((a, m) => a + m.amount, 0))
       const avgMonthlys = totals.map((t) => t / monthCount)
       const names = series.map((s) => s.subCategoryName)
 
-      const webResult: MatrixResult = { names, totals, avgMonthlys, matrix, edges, hasEnoughData: months.size >= 3, isFallback }
-      const now = new Date().toISOString()
+      const webResult: MatrixResult = {
+        displayMode: 'correlation',
+        algo,
+        monthsCount,
+        names,
+        totals,
+        avgMonthlys,
+        matrix,
+        edges,
+        hasEnoughData: monthsCount >= 6,
+        isFallback,
+        leaderboard: [],
+      }
 
       await db.table('computedInsights').put({
         key: 'correlation_web',
         value: JSON.stringify(webResult),
         computedAt: now,
-        version: 3,
+        version: 4,
       })
 
       setResult(webResult)
@@ -425,7 +506,7 @@ export function CorrelationWeb() {
         </div>
         <span className="text-xs text-gray-400">Based on all available data</span>
       </div>
-      <p className="text-xs text-gray-500 mb-3">How sub-category spending patterns move together — top 15 sub-categories, Pearson r</p>
+      <p className="text-xs text-gray-500 mb-3">How sub-category spending patterns move together — top 15 sub-categories</p>
 
       {computing && (
         <div className="flex items-center justify-center py-8 gap-2 text-gray-500 text-sm">
@@ -437,23 +518,47 @@ export function CorrelationWeb() {
         <p className="text-red-400 text-xs text-center py-4">{error}</p>
       )}
 
-      {!computing && result && result.isFallback && (
+      {/* V2.7.4 D042 — n<3 leaderboard mode (new-user retention: A+D) */}
+      {!computing && result && result.displayMode === 'leaderboard' && (
+        <>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+            Correlations unlock at <strong>3 months</strong> of data — you&apos;re at <strong>{result.monthsCount} month{result.monthsCount === 1 ? '' : 's'}</strong>. Top spend categories shown for now.
+          </p>
+          {result.leaderboard.length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-6">No expense data yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {result.leaderboard.map((row, i) => (
+                <div key={row.name} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded">
+                  <span className="text-sm text-gray-700"><span className="text-gray-400 mr-2">#{i + 1}</span>{row.name}</span>
+                  <span className="text-sm font-medium text-gray-900">₹{Math.round(row.total).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 text-xs text-gray-400">
+            {daysAgo !== null ? `Computed ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}` : ''}
+          </div>
+        </>
+      )}
+
+      {!computing && result && result.displayMode === 'correlation' && result.isFallback && (
         <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
           No sub-category data found — showing category-level correlations. Assign sub-categories to transactions for deeper analysis.
         </p>
       )}
 
-      {!computing && result && !result.hasEnoughData && (
+      {!computing && result && result.displayMode === 'correlation' && !result.hasEnoughData && (
         <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
-          Limited data — correlations shown may not be statistically significant. Add more transactions over time for stronger patterns.
+          Limited data ({result.monthsCount} months) — correlations shown may not be statistically significant. Add more transactions over time for stronger patterns.
         </p>
       )}
 
-      {!computing && result && !result.names.length && (
+      {!computing && result && result.displayMode === 'correlation' && !result.names.length && (
         <p className="text-xs text-gray-500 text-center py-8">Not enough expense data to compute correlations.</p>
       )}
 
-      {!computing && result && result.names.length > 0 && (
+      {!computing && result && result.displayMode === 'correlation' && result.names.length > 0 && (
         <>
           {/* View toggle */}
           <div className="flex gap-1 mb-4">
@@ -512,6 +617,7 @@ export function CorrelationWeb() {
 
           <div className="mt-3 text-xs text-gray-400">
             {daysAgo !== null ? `Computed ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}` : ''}
+            {result.algo !== 'none' ? ` · via ${result.algo}` : ''}
             {computing ? ' · Updating…' : ''}
           </div>
         </>
