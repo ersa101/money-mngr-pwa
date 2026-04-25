@@ -78,8 +78,17 @@ export function SeasonalHeatmap() {
     setError(null)
     try {
       const transactions = await db.transactions.toArray()
-      const categories = await db.categories.toArray()
-      const subCatMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
+      const accounts = await db.accounts.toArray()
+      const categoriesRaw = await db.categories.toArray()
+
+      // V2.7.4 D045 — exclude top-level categories matching account names
+      // (TRANSFER pollution). Inline pattern (callback context, not useLiveQuery).
+      const accountNamesLower = new Set(accounts.filter(Boolean).map((a) => a.name.toLowerCase()))
+      const categories = categoriesRaw.filter(Boolean).filter((c) => {
+        if (c.parentId) return true
+        return !accountNamesLower.has(c.name.toLowerCase())
+      })
+      const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
 
       const now = new Date()
       const weeks: string[] = []
