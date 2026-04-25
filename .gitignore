@@ -89,6 +89,9 @@ Screenshot_*.jpg
 !BUGS.md
 !USER_LEARNINGS.md
 !CHEATSHEET.md
+# Phase plan docs (V2_P*_CLAUDE_CODE_PROMPT.md, V2_P*_PLAN.md)
+!V2_P*_CLAUDE_CODE_PROMPT.md
+!V2_P*_PLAN.md
 *.pdf
 *.docx
 *.doc
