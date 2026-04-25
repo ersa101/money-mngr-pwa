@@ -6,6 +6,7 @@ import { useDb } from '@/contexts/DbContext';
 import type { FilterPreset } from '@/types/database';
 import { Button } from '@/components/ui/button';
 import { sortByName } from '@/lib/sortUtils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { X, Bookmark } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -39,7 +40,7 @@ export function SaveFilterModal({
 }: SaveFilterModalProps) {
   const db = useDb();
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
   const existingPresets = useLiveQuery(() => db?.filterPresets.toArray() ?? [], [db]) || [];
 
   // Local form state

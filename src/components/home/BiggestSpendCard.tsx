@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import { formatCurrency } from '@/lib/currency-utils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { Flame } from 'lucide-react';
 import { TransactionDetailModal } from '@/components/TransactionDetailModal';
 import type { Transaction } from '@/types/database';
@@ -11,7 +12,7 @@ import type { Transaction } from '@/types/database';
 export function BiggestSpendCard() {
   const db = useDb();
   const transactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
   const [selected, setSelected] = useState<Transaction | null>(null);
 

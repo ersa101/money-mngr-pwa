@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import { resolveAIKey } from '@/lib/resolveAIKey'
 import { Eye, RefreshCw, ThumbsUp, Minus, ThumbsDown, AlertTriangle } from 'lucide-react'
 
@@ -138,7 +139,7 @@ export function UncomfortableTruth() {
     : null
 
   const transactions = useLiveQuery(() => db.transactions.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useCleanCategories()
 
   const computeNumbers = useCallback((): ComputedNumbers | null => {
     if (!transactions || !categories) return null

@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import type { Transaction, Category } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
@@ -55,7 +56,7 @@ export function SubCategoryTrend({
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   // Build category lookup map
   const categoryMap = useMemo(() => {

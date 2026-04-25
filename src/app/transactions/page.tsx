@@ -10,6 +10,7 @@ import { SaveFilterModal, computeBillingDates } from '@/components/transactions/
 import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
 import { sortByName } from '@/lib/sortUtils'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import toast from 'react-hot-toast'
 
 type TypeFilter = 'all' | 'expense' | 'income' | 'transfer'
@@ -136,7 +137,7 @@ function TransactionsPage() {
   const [showSaveModal, setShowSaveModal] = useState(false)
 
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
   const transactions = useLiveQuery(() => db?.transactions.orderBy('date').reverse().toArray() ?? [], [db])
   const filterPresets = useLiveQuery(() => db?.filterPresets.toArray() ?? [], [db]) || []
 

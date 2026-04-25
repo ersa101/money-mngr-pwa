@@ -8,6 +8,7 @@ import { parseSMS } from '@/lib/smsParser';
 import { llmService } from '@/lib/llmService';
 import { computeSourceHash } from '@/lib/importUtils';
 import { sortByName } from '@/lib/sortUtils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { formatCurrency } from '@/lib/currency-utils';
 import { Transaction, Account, Category } from '@/types/database';
 import { Button } from '@/components/ui/button';
@@ -62,7 +63,7 @@ export function AddTransactionModal({
   const db = useDb()
   // Data from IndexedDB
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
 
   // SMS Parsing State
   const [smsText, setSmsText] = useState('');

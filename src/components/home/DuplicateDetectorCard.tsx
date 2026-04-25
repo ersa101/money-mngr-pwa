@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import { formatCurrency } from '@/lib/currency-utils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { AlertTriangle } from 'lucide-react';
 import type { Transaction } from '@/types/database';
 import { TransactionDetailModal } from '@/components/TransactionDetailModal';
@@ -16,7 +17,7 @@ interface DuplicatePair {
 export function DuplicateDetectorCard() {
   const db = useDb();
   const transactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
   const [selected, setSelected] = useState<Transaction | null>(null);
 

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import { computeFinancialAge } from '@/lib/financialAgeUtils'
 import type { FinancialAgeInput } from '@/lib/financialAgeUtils'
 import { ChevronDown, ChevronUp, Brain } from 'lucide-react'
@@ -35,7 +36,7 @@ export function FinancialAgeScore() {
 
   const transactions = useLiveQuery(() => db.transactions.toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useCleanCategories()
 
   const result = useMemo(() => {
     if (!transactions || !accounts || !categories || realAge === null) return null

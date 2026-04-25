@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import type { Transaction } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
@@ -44,7 +45,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   // Filter transactions by date range
   const transactions = useMemo(() => {

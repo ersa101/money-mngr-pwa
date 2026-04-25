@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
 import { sortByName } from '@/lib/sortUtils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -37,7 +38,7 @@ export function BulkEditModal({
 }: BulkEditModalProps) {
   const db = useDb();
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
 
   const [categoryId, setCategoryId] = useState<string>('__keep__');
   const [fromAccountId, setFromAccountId] = useState<string>('__keep__');

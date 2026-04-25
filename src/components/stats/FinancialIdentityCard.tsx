@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import { Camera, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 // ── Bucket configuration ──────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ export function FinancialIdentityCard() {
   const [sharing, setSharing] = useState(false)
 
   const transactions = useLiveQuery(() => db.transactions.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useCleanCategories()
 
   const stats = useMemo(() => {
     if (!transactions || !categories) return null

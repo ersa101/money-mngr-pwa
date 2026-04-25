@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useDb } from '@/contexts/DbContext'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import type { Transaction } from '@/types/database'
 import { useState, useMemo, useEffect } from 'react'
 import {
@@ -68,7 +69,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
   const [granularity, setGranularity] = useState<Granularity>('1M')
 
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   const daysDiff = useMemo(() => {
     return Math.ceil(
