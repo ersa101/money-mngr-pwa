@@ -121,13 +121,25 @@ Write 4-6 numbered statements. Each must include the real ₹ figure from the da
   }
 }
 
+// V2.7.4 D044 — small synchronous hash for stable per-statement feedback keys.
+function statementHash(s: string): string {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i)
+    h |= 0
+  }
+  return Math.abs(h).toString(16)
+}
+
 export function UncomfortableTruth() {
   const db = useDb()
-  const [phase, setPhase] = useState<'idle' | 'confirm' | 'loading' | 'revealed' | 'feedback-done'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'loading' | 'revealed'>('idle')
   const [statements, setStatements] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [noKey, setNoKey] = useState(false)
-  const [feedback, setFeedback] = useState<'YES' | 'SOMEWHAT' | 'NO' | null>(null)
+  // V2.7.4 D044 — per-statement transient feedback (cleared on recompute).
+  // Keyed by statementHash. Each click also writes to feedbackLog for training.
+  const [stmtFeedback, setStmtFeedback] = useState<Map<string, 'up' | 'down'>>(new Map())
 
   const lastShown = useLiveQuery(async () => {
     const s = await db.appSettings.get('uncomfortable_truth_last_shown')
@@ -211,6 +223,7 @@ export function UncomfortableTruth() {
   const handleReveal = useCallback(async () => {
     setPhase('loading')
     setError(null)
+    setStmtFeedback(new Map()) // D044 — reset transient per-statement feedback on every reveal/recompute
 
     const numbers = computeNumbers()
     if (!numbers) {
@@ -249,23 +262,27 @@ export function UncomfortableTruth() {
     setPhase('revealed')
   }, [computeNumbers, db])
 
-  const saveFeedback = useCallback(async (response: 'YES' | 'SOMEWHAT' | 'NO') => {
-    setFeedback(response)
-    // Map to FeedbackLog's userResponse type: YES→POSITIVE, NO→NEGATIVE, SOMEWHAT→0
-    const mapped: 'POSITIVE' | 'NEGATIVE' | number =
-      response === 'YES' ? 'POSITIVE' : response === 'NO' ? 'NEGATIVE' : 0
+  // V2.7.4 D044 — per-statement vote. Idempotent: clicking the same vote twice
+  // doesn't double-write; switching vote writes a new feedbackLog entry.
+  const voteStatement = useCallback(async (stmt: string, vote: 'up' | 'down') => {
+    const key = statementHash(stmt)
+    const prev = stmtFeedback.get(key)
+    if (prev === vote) return
+    setStmtFeedback((m) => {
+      const next = new Map(m)
+      next.set(key, vote)
+      return next
+    })
     await db.feedbackLog.add({
       timestamp: new Date().toISOString(),
-      featureId: 'uncomfortable_truth',
-      insightType: 'spending_truth',
-      insightSummary: statements.join(' | '),
-      userResponse: mapped,
-      userReason: response === 'SOMEWHAT' ? 'Somewhat' : undefined,
+      featureId: 'UNCOMFORTABLE_TRUTH',
+      insightType: key,
+      insightSummary: stmt,
+      userResponse: vote === 'up' ? 'POSITIVE' : 'NEGATIVE',
       monthYear: new Date().toISOString().slice(0, 7),
       syncedToSheet: false,
     })
-    setPhase('feedback-done')
-  }, [db, statements])
+  }, [db, stmtFeedback])
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -330,56 +347,63 @@ export function UncomfortableTruth() {
           )}
           {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
 
-          <div className="space-y-3 mb-6">
-            {statements.map((s, i) => (
-              <div key={i} className="bg-gray-50 border-l-2 border-amber-500 rounded-r-lg px-4 py-3">
-                <p className="text-sm text-gray-800 leading-relaxed">{s}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Feedback */}
-          <div className="border-t border-gray-200 pt-4">
-            <p className="text-xs text-gray-500 mb-3">Did this change how you think about your spending?</p>
-            <div className="flex gap-2">
-              {(['YES', 'SOMEWHAT', 'NO'] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() => saveFeedback(opt)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition border ${
-                    feedback === opt
-                      ? 'bg-amber-600 border-amber-600 text-white'
-                      : 'border-gray-300 text-gray-500 hover:border-amber-500 hover:text-gray-900'
-                  }`}
-                >
-                  {opt === 'YES' && <ThumbsUp className="w-3.5 h-3.5" />}
-                  {opt === 'SOMEWHAT' && <Minus className="w-3.5 h-3.5" />}
-                  {opt === 'NO' && <ThumbsDown className="w-3.5 h-3.5" />}
-                  {opt === 'YES' ? 'Yes' : opt === 'SOMEWHAT' ? 'Somewhat' : 'No'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* FEEDBACK DONE */}
-      {phase === 'feedback-done' && (
-        <>
           <div className="space-y-3 mb-4">
-            {statements.map((s, i) => (
-              <div key={i} className="bg-gray-50 border-l-2 border-amber-500 rounded-r-lg px-4 py-3">
-                <p className="text-sm text-gray-800 leading-relaxed">{s}</p>
-              </div>
-            ))}
+            {statements.map((s, i) => {
+              const key = statementHash(s)
+              const vote = stmtFeedback.get(key)
+              return (
+                <div key={i} className="bg-gray-50 border-l-2 border-amber-500 rounded-r-lg px-4 py-3 flex items-start gap-3">
+                  <p className="text-sm text-gray-800 leading-relaxed flex-1">{s}</p>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => voteStatement(s, 'up')}
+                      title="Yes, this resonates"
+                      className={`p-1.5 rounded-lg border transition ${
+                        vote === 'up'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                          : 'border-gray-200 text-gray-400 hover:border-emerald-400 hover:text-emerald-600'
+                      }`}
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => voteStatement(s, 'down')}
+                      title="No, doesn't apply"
+                      className={`p-1.5 rounded-lg border transition ${
+                        vote === 'down'
+                          ? 'bg-red-50 border-red-400 text-red-700'
+                          : 'border-gray-200 text-gray-400 hover:border-red-400 hover:text-red-600'
+                      }`}
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-          <p className="text-xs text-gray-400">Feedback saved. Thanks for being honest with yourself.</p>
-          <button
-            onClick={() => setPhase('idle')}
-            className="mt-3 text-xs text-gray-500 hover:text-gray-900 transition"
-          >
-            Close
-          </button>
+
+          {/* Recompute / close — replaces the prior YES/SOMEWHAT/NO card-level block (D044) */}
+          <div className="border-t border-gray-200 pt-3 flex items-center gap-3">
+            <button
+              onClick={handleReveal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:border-amber-500 hover:text-gray-900 transition"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Recompute
+            </button>
+            <button
+              onClick={() => setPhase('idle')}
+              className="text-xs text-gray-500 hover:text-gray-900 transition"
+            >
+              Close
+            </button>
+            {stmtFeedback.size > 0 && (
+              <span className="text-xs text-gray-400 ml-auto">
+                {stmtFeedback.size} of {statements.length} rated
+              </span>
+            )}
+          </div>
         </>
       )}
     </div>
