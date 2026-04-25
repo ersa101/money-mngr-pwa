@@ -22,8 +22,8 @@ export default function FAINPage() {
       {/* Header */}
       <div className="px-4 pt-5 pb-3 border-b border-gray-200 bg-white sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-900 mb-3">
-          🧠 <span className="text-blue-600">FAIN</span>
-          <span className="text-gray-500 text-sm font-normal ml-2">Financial AI Native</span>
+          🧠 <span className="text-blue-600">SAGE</span>
+          <span className="text-gray-500 text-sm font-normal ml-2">Spend Analysis & Guidance Engine</span>
         </h1>
 
         {/* Segmented control */}

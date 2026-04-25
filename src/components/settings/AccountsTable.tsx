@@ -65,7 +65,12 @@ export function AccountsTable() {
 
   const toggleBoolCell = async (account: Account, field: 'includeInNetWorth' | 'isLiability') => {
     if (!account.id) return
-    await updateAccount(account.id, { ...account, [field]: !account[field] })
+    // includeInNetWorth default is true (undefined === included), so treat undefined as true
+    // isLiability default is false (undefined === not a liability), so treat undefined as false
+    const currentVal = field === 'includeInNetWorth'
+      ? account[field] !== false
+      : !!account[field]
+    await updateAccount(account.id, { ...account, [field]: !currentVal })
   }
 
   const handleAddClick = () => { setEditingAccount(null); setModalOpen(true) }

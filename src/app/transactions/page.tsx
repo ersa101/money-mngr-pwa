@@ -491,8 +491,8 @@ function TransactionsPage() {
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Transactions</h1>
-            <p className="mt-1 text-sm text-gray-500">Track and manage all your financial activities</p>
+            <h1 className="text-3xl font-bold text-gray-900">TALLY</h1>
+            <p className="mt-1 text-sm text-gray-500">Transaction Activity Log & Ledger Yard</p>
           </div>
           {/* Desktop Add button — inline in header, hidden on mobile (FAB handles it) */}
           <button

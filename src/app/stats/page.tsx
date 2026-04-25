@@ -41,9 +41,9 @@ export default function StatsPage() {
                 <BarChart3 className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Stats & Insights</h1>
+                <h1 className="text-2xl font-bold text-gray-900">RADAR</h1>
                 <p className="text-sm text-gray-500">
-                  Comprehensive financial analytics and trends
+                  Review & Detection of Activity Reports
                 </p>
               </div>
             </div>
