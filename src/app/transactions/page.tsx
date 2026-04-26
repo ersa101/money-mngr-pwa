@@ -174,8 +174,14 @@ function TransactionsPage() {
   // Get unique categories from transactions for filter dropdown.
   // Scoped to the currently selected typeFilter so that when the user picks
   // "Income" only income-category names appear, and vice-versa for Expense.
+  // V2.7.4 D045 — also exclude any name matching an account name (TRANSFER
+  // pollution surfaces here via tx.csvCategory fallback even after
+  // useCleanCategories filters the categories table).
   const uniqueCategories = useMemo(() => {
     if (!transactions) return []
+    const accountNamesLower = new Set(
+      (accounts ?? []).filter(Boolean).map(a => a.name.toLowerCase())
+    )
     const cats = new Set<string>()
     transactions.forEach(tx => {
       // Skip transactions that don't match the active type filter
@@ -188,10 +194,12 @@ function TransactionsPage() {
       // Also include csvCategory as a fallback for CSV-imported transactions
       else if (tx.csvCategory) cats.add(tx.csvCategory)
     })
-    return Array.from(cats).sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
-    )
-  }, [transactions, categories, typeFilter])
+    return Array.from(cats)
+      .filter(name => !accountNamesLower.has(name.toLowerCase()))
+      .sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      )
+  }, [transactions, categories, accounts, typeFilter])
 
   // Subcategories for the currently selected filterCategory
   const availableSubCategories = useMemo(() => {
