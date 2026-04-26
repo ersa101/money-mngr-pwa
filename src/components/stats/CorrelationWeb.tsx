@@ -75,7 +75,7 @@ export function CorrelationWeb() {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string[] } | null>(null)
 
   const txCount = useLiveQuery(() => db?.transactions.count() ?? 0, [db])
-  const lastTxCountRef = useRef<number | null>(null)
+  const lastTxCountRef = useRef<number>(-1)
 
   const cached = useLiveQuery(async () => {
     return db?.table('computedInsights').where('key').equals('correlation_web').first()
@@ -229,26 +229,25 @@ export function CorrelationWeb() {
     }
   }, [db])
 
-  // Load cache on mount; auto-compute if no valid cache
-  useEffect(() => {
-    if (cached === undefined) return
-    if (cached && isCacheValid() && !result && !computing) {
-      loadFromCache()
-    } else if (!result && !computing && txCount !== undefined && txCount > 0) {
-      compute()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cached])
-
-  // Auto-recompute when transaction count changes (after initial load)
+  // V2.7.4 verification fix — auto-compute on mount and when txCount changes.
+  // Previous version had `if (cached === undefined) return` which blocked both
+  // "loading" AND "no record" cases — when computedInsights was empty (e.g.
+  // post-boot-clear), compute() never auto-fired, leaving the card showing
+  // only the header. Mirror SeasonalHeatmap pattern: gate on txCount, then
+  // load from cache OR compute; isCacheValid handles the no-cache case via
+  // `if (!cached) return false`.
   useEffect(() => {
     if (txCount === undefined) return
-    if (lastTxCountRef.current !== null && lastTxCountRef.current !== txCount && !computing) {
+    if (txCount === lastTxCountRef.current) return
+    lastTxCountRef.current = txCount
+    if (computing) return
+    if (cached && isCacheValid()) {
+      loadFromCache()
+    } else if (txCount > 0) {
       compute()
     }
-    lastTxCountRef.current = txCount
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [txCount])
+  }, [txCount, cached])
 
   const daysAgo = computedAt
     ? Math.floor((Date.now() - new Date(computedAt).getTime()) / 86400000)
