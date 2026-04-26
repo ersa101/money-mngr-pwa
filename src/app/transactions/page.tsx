@@ -9,8 +9,9 @@ import { TransactionList } from '@/components/transactions/TransactionList'
 import { SaveFilterModal, computeBillingDates } from '@/components/transactions/SaveFilterModal'
 import { Plus, Search, Filter, Upload, X, ChevronDown, ChevronRight, Bookmark, Pencil, Trash2 } from 'lucide-react'
 import { ActionLogger } from '@/lib/actionLogger'
+import { sortByName } from '@/lib/sortUtils'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import toast from 'react-hot-toast'
-import { debouncedSync } from '@/lib/sync'
 
 type TypeFilter = 'all' | 'expense' | 'income' | 'transfer'
 type DateGrouping = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'semi-annual' | 'annual' | 'none'
@@ -136,28 +137,32 @@ function TransactionsPage() {
   const [showSaveModal, setShowSaveModal] = useState(false)
 
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
   const transactions = useLiveQuery(() => db?.transactions.orderBy('date').reverse().toArray() ?? [], [db])
   const filterPresets = useLiveQuery(() => db?.filterPresets.toArray() ?? [], [db]) || []
 
-  // Unique note/description pool for search autocomplete
+  // Unique note/description pool for search autocomplete — sorted by most-recently-used first
   const allNoteValues = useMemo(() => {
     if (!transactions) return []
-    const seen = new Set<string>()
+    // transactions arrive newest-first; only set on first encounter to preserve newest date per note
+    const noteMap = new Map<string, string>() // note → most-recent date string
     transactions.forEach(t => {
-      if (t.description?.trim()) seen.add(t.description.trim())
-      if (t.notes?.trim()) seen.add(t.notes.trim())
+      if (t.description?.trim() && !noteMap.has(t.description.trim())) noteMap.set(t.description.trim(), t.date)
+      if (t.notes?.trim() && !noteMap.has(t.notes.trim())) noteMap.set(t.notes.trim(), t.date)
     })
-    return Array.from(seen).sort()
+    return Array.from(noteMap.entries())
+      .sort((a, b) => b[1].localeCompare(a[1]))
+      .map(([note]) => note)
   }, [transactions])
 
   const handleSearchChange = (value: string) => {
     setSearchText(value)
     setActivePresetId(null)
     if (value.trim().length > 0) {
+      setDateGrouping('none') // auto-disable grouping when searching
       const filtered = allNoteValues.filter(n =>
         n.toLowerCase().includes(value.toLowerCase())
-      ).slice(0, 8)
+      ).slice(0, 10)
       setSearchSuggestions(filtered)
       setShowSearchSuggestions(filtered.length > 0)
     } else {
@@ -169,8 +174,14 @@ function TransactionsPage() {
   // Get unique categories from transactions for filter dropdown.
   // Scoped to the currently selected typeFilter so that when the user picks
   // "Income" only income-category names appear, and vice-versa for Expense.
+  // V2.7.4 D045 — also exclude any name matching an account name (TRANSFER
+  // pollution surfaces here via tx.csvCategory fallback even after
+  // useCleanCategories filters the categories table).
   const uniqueCategories = useMemo(() => {
     if (!transactions) return []
+    const accountNamesLower = new Set(
+      (accounts ?? []).filter(Boolean).map(a => a.name.toLowerCase())
+    )
     const cats = new Set<string>()
     transactions.forEach(tx => {
       // Skip transactions that don't match the active type filter
@@ -183,15 +194,21 @@ function TransactionsPage() {
       // Also include csvCategory as a fallback for CSV-imported transactions
       else if (tx.csvCategory) cats.add(tx.csvCategory)
     })
-    return Array.from(cats).sort()
-  }, [transactions, categories, typeFilter])
+    return Array.from(cats)
+      .filter(name => !accountNamesLower.has(name.toLowerCase()))
+      .sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      )
+  }, [transactions, categories, accounts, typeFilter])
 
   // Subcategories for the currently selected filterCategory
   const availableSubCategories = useMemo(() => {
     if (!categories || !filterCategory) return []
     const parentCat = categories.find(c => c.name === filterCategory && !c.parentId)
     if (!parentCat) return []
-    return categories.filter(c => c.parentId === parentCat.id)
+    return categories
+      .filter(c => c.parentId === parentCat.id)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
   }, [categories, filterCategory])
 
   // Clear category + subcategory when type changes
@@ -449,10 +466,9 @@ function TransactionsPage() {
       date: now.toISOString().slice(0, 16),
       source: 'MANUAL' as const,
       createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
+      updatedAt: Date.now(),
     };
     await db.transactions.add(copy);
-    debouncedSync();
     toast.success('Transaction duplicated');
   };
 
@@ -464,7 +480,6 @@ function TransactionsPage() {
     if (confirm('Are you sure you want to delete this transaction?')) {
       // Basic deletion, doesn't account for balance updates or linked txns from v3
       await db.transactions.delete(transaction.id!);
-      debouncedSync();
       toast.success('Transaction deleted');
       handleCloseModal();
     }
@@ -476,18 +491,38 @@ function TransactionsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 text-white">
+    <div className="min-h-screen bg-gray-50 p-4">
+      {/* Mobile FAB — floating Add button, bottom-right, above bottom nav */}
+      <button
+        onClick={() => setIsModalOpen(true)}
+        className="md:hidden fixed bottom-20 right-4 z-30 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 shadow-lg flex items-center justify-center transition-colors"
+        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+        title="Add transaction"
+      >
+        <Plus size={26} className="text-white" />
+      </button>
+
       <div className="mx-auto max-w-4xl space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Transactions</h1>
-          <p className="mt-1 text-sm text-slate-400">Track and manage all your financial activities</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">TALLY</h1>
+            <p className="mt-1 text-sm text-gray-500">Transaction Activity Log & Ledger Yard</p>
+          </div>
+          {/* Desktop Add button — inline in header, hidden on mobile (FAB handles it) */}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="hidden md:flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors"
+          >
+            <Plus size={18} />
+            Add
+          </button>
         </div>
 
-        <div className="rounded-lg bg-slate-800 p-4 space-y-3">
+        <div className="rounded-lg bg-white border border-gray-200 p-4 space-y-3">
           {/* ── Row 1: Search + Filter button + Add + Upload ── */}
           <div className="flex gap-2">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
                 placeholder="Search transactions..."
@@ -495,19 +530,20 @@ function TransactionsPage() {
                 onChange={(e) => handleSearchChange(e.target.value)}
                 onFocus={() => searchText.trim() && searchSuggestions.length > 0 && setShowSearchSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSearchSuggestions(false), 200)}
-                className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                onKeyDown={(e) => { if (e.key === 'Enter') { setShowSearchSuggestions(false); (e.target as HTMLInputElement).blur() } }}
+                className="w-full pl-10 pr-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500"
                 autoComplete="off"
               />
               {searchText && (
                 <button
                   onClick={() => { setSearchText(''); setShowSearchSuggestions(false) }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
                 >
                   <X size={16} />
                 </button>
               )}
               {showSearchSuggestions && searchSuggestions.length > 0 && (
-                <div className="absolute z-50 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                   {searchSuggestions.map((suggestion, index) => (
                     <button
                       key={index}
@@ -517,7 +553,7 @@ function TransactionsPage() {
                         setSearchText(suggestion)
                         setShowSearchSuggestions(false)
                       }}
-                      className="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                      className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                     >
                       {suggestion}
                     </button>
@@ -533,7 +569,7 @@ function TransactionsPage() {
                 className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
                   showPresetsPanel
                     ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'
                 }`}
                 title="Saved filters"
               >
@@ -547,15 +583,15 @@ function TransactionsPage() {
 
               {/* Presets dropdown */}
               {showPresetsPanel && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
-                  <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700 sticky top-0 bg-slate-900">
-                    <span className="text-xs text-slate-400 uppercase font-medium tracking-wide">Saved Filters</span>
-                    <button onClick={() => setShowPresetsPanel(false)} className="text-slate-500 hover:text-white p-0.5">
+                <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-50 max-h-80 overflow-y-auto">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 sticky top-0 bg-white">
+                    <span className="text-xs text-gray-500 uppercase font-medium tracking-wide">Saved Filters</span>
+                    <button onClick={() => setShowPresetsPanel(false)} className="text-gray-400 hover:text-gray-700 p-0.5">
                       <X size={14} />
                     </button>
                   </div>
                   {filterPresets.length === 0 ? (
-                    <div className="px-3 py-5 text-center text-sm text-slate-500">
+                    <div className="px-3 py-5 text-center text-sm text-gray-500">
                       No saved filters yet.<br />
                       <span className="text-xs">Fill in filters below and click Save.</span>
                     </div>
@@ -566,25 +602,25 @@ function TransactionsPage() {
                           key={preset.id}
                           className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors ${
                             activePresetId === preset.id
-                              ? 'bg-purple-900/50 border-purple-600'
-                              : 'bg-slate-800/60 border-slate-700 hover:border-slate-500'
+                              ? 'bg-purple-50 border-purple-400'
+                              : 'bg-white border-gray-200 hover:border-gray-400'
                           }`}
                           onClick={() => { applyPreset(preset); setShowPresetsPanel(false) }}
                         >
                           <div className="flex-1 min-w-0">
-                            <div className="font-medium text-white text-sm">{preset.name}</div>
-                            <div className="text-xs text-slate-400 truncate mt-0.5">{getPresetSummary(preset)}</div>
+                            <div className="font-medium text-gray-900 text-sm">{preset.name}</div>
+                            <div className="text-xs text-gray-500 truncate mt-0.5">{getPresetSummary(preset)}</div>
                           </div>
                           <button
                             onClick={e => { e.stopPropagation(); setEditingPreset(preset); setShowSaveModal(true); setShowPresetsPanel(false) }}
-                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+                            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
                             title="Edit preset"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={e => { e.stopPropagation(); deletePreset(preset) }}
-                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition-colors flex-shrink-0"
+                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
                             title="Delete preset"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -597,16 +633,17 @@ function TransactionsPage() {
               )}
             </div>
 
+            {/* Add button: hidden on mobile (FAB handles it), show on md only if no desktop header button */}
             <button
               onClick={() => setIsModalOpen(true)}
-              className="hidden md:flex items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+              className="flex md:hidden items-center justify-center p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Plus size={18} />
             </button>
             <CSVUploadModal
               onSuccess={() => {}}
               trigger={
-                <button className="flex items-center justify-center p-2 rounded-lg bg-slate-700 border border-slate-600 text-slate-300 hover:bg-slate-600">
+                <button className="flex items-center justify-center p-2 rounded-lg bg-white border border-gray-300 text-gray-600 hover:bg-gray-100">
                   <Upload size={18} />
                 </button>
               }
@@ -618,8 +655,8 @@ function TransactionsPage() {
               title={showFilters ? 'Collapse filters' : 'Expand filters'}
               className={`relative flex items-center justify-center p-2 rounded-lg border transition-colors ${
                 showFilters
-                  ? 'bg-slate-600 border-slate-500 text-white'
-                  : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-blue-100 border-blue-300 text-blue-700'
+                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100'
               }`}
             >
               <ChevronDown
@@ -636,10 +673,10 @@ function TransactionsPage() {
           {activePresetId && (() => {
             const active = filterPresets.find(p => p.id === activePresetId)
             return active ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-900/40 border border-purple-700 rounded-lg text-sm">
-                <Bookmark className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
-                <span className="text-purple-200 font-medium flex-1 truncate">{active.name}</span>
-                <button onClick={clearFilters} className="text-purple-400 hover:text-white flex-shrink-0" title="Clear filter">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-300 rounded-lg text-sm">
+                <Bookmark className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                <span className="text-purple-700 font-medium flex-1 truncate">{active.name}</span>
+                <button onClick={clearFilters} className="text-purple-500 hover:text-purple-700 flex-shrink-0" title="Clear filter">
                   <X size={14} />
                 </button>
               </div>
@@ -649,14 +686,14 @@ function TransactionsPage() {
           {/* ── Collapsible filter section ── */}
           {showFilters && (
             <>
-              {/* Type Pills — horizontally scrollable on mobile */}
-              <div className="flex gap-2 overflow-x-auto pb-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              {/* Type Pills — horizontally scrollable on mobile, wrapping on desktop */}
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide md:flex-wrap">
                 {(['all', 'expense', 'income', 'transfer'] as const).map((f) => (
                   <button
                     key={f}
                     onClick={() => { setTypeFilter(f); setActivePresetId(null) }}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                      typeFilter === f ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    className={`flex-shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors min-h-[44px] ${
+                      typeFilter === f ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
                     {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -667,24 +704,24 @@ function TransactionsPage() {
               {/* Account | Category */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">Account</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">Account</label>
                   <select
                     value={filterAccount}
                     onChange={(e) => { setFilterAccount(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All Accounts</option>
-                    {accounts?.map((acc) => (
+                    {(accounts ? sortByName(accounts) : []).map((acc) => (
                       <option key={`filter-acc-${acc.id}`} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">Category</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">Category</label>
                   <select
                     value={filterCategory}
                     onChange={(e) => { setFilterCategory(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All Categories</option>
                     {uniqueCategories.map((cat) => (
@@ -697,11 +734,11 @@ function TransactionsPage() {
               {/* SubCategory — appears when category has children */}
               {availableSubCategories.length > 0 && (
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">SubCategory</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">SubCategory</label>
                   <select
                     value={filterSubCategory}
                     onChange={(e) => { setFilterSubCategory(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   >
                     <option value="">All SubCategories</option>
                     {availableSubCategories.map((sc) => (
@@ -714,21 +751,21 @@ function TransactionsPage() {
               {/* Date Range */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">From</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">From</label>
                   <input
                     type="date"
                     value={filterDateFrom}
                     onChange={(e) => { setFilterDateFrom(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">To</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">To</label>
                   <input
                     type="date"
                     value={filterDateTo}
                     onChange={(e) => { setFilterDateTo(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
               </div>
@@ -736,36 +773,36 @@ function TransactionsPage() {
               {/* Amount Range */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">Min Amount</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">Min Amount</label>
                   <input
                     type="number"
                     placeholder="0"
                     value={filterAmountMin}
                     onChange={(e) => { setFilterAmountMin(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-slate-400 uppercase mb-1 block">Max Amount</label>
+                  <label className="text-xs text-gray-500 uppercase mb-1 block">Max Amount</label>
                   <input
                     type="number"
                     placeholder="No limit"
                     value={filterAmountMax}
                     onChange={(e) => { setFilterAmountMax(e.target.value); setActivePresetId(null) }}
-                    className="w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-sm"
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
               </div>
 
               {/* Save as Filter + Clear */}
-              <div className="flex gap-2 pt-1 border-t border-slate-700">
+              <div className="flex gap-2 pt-1 border-t border-gray-200">
                 <button
                   onClick={() => { setEditingPreset(null); setShowSaveModal(true) }}
                   disabled={!hasActiveFilters}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     hasActiveFilters
-                      ? 'bg-purple-700 text-white hover:bg-purple-600'
-                      : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                      ? 'bg-purple-600 text-white hover:bg-purple-700'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   }`}
                 >
                   <Bookmark size={15} />
@@ -774,7 +811,7 @@ function TransactionsPage() {
                 {hasActiveFilters && (
                   <button
                     onClick={clearFilters}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 transition-colors text-sm"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
                   >
                     <X size={15} />
                     Clear
@@ -789,25 +826,25 @@ function TransactionsPage() {
         {hasActiveFilters && filterTotals && (
           <div className="flex flex-wrap gap-3">
             {/* Income */}
-            <div className="flex items-center gap-2 bg-green-900/40 border border-green-800 rounded-xl px-4 py-2.5">
-              <span className="text-green-400 font-bold text-base">▲</span>
-              <span className="text-green-400 font-bold text-base">{formatCurrency(filterTotals.income)}</span>
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+              <span className="text-green-600 font-bold text-base">▲</span>
+              <span className="text-green-600 font-bold text-base">{formatCurrency(filterTotals.income)}</span>
             </div>
             {/* Expense */}
-            <div className="flex items-center gap-2 bg-red-900/40 border border-red-800 rounded-xl px-4 py-2.5">
-              <span className="text-red-400 font-bold text-base">▼</span>
-              <span className="text-red-400 font-bold text-base">{formatCurrency(filterTotals.expense)}</span>
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+              <span className="text-red-600 font-bold text-base">▼</span>
+              <span className="text-red-600 font-bold text-base">{formatCurrency(filterTotals.expense)}</span>
             </div>
             {/* Transfer */}
-            <div className="flex items-center gap-2 bg-blue-900/40 border border-blue-800 rounded-xl px-4 py-2.5">
-              <span className="text-blue-400 font-bold text-base">⇄</span>
-              <span className="text-blue-400 font-bold text-base">{formatCurrency(filterTotals.transfer)}</span>
+            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+              <span className="text-blue-600 font-bold text-base">⇄</span>
+              <span className="text-blue-600 font-bold text-base">{formatCurrency(filterTotals.transfer)}</span>
             </div>
             {/* Count */}
-            <div className="flex items-center gap-2 bg-slate-700/60 border border-slate-600 rounded-xl px-4 py-2.5">
-              <span className="text-slate-300 font-bold text-base">#</span>
-              <span className="text-slate-300 font-bold text-base">{filterTotals.count}</span>
-              <span className="text-slate-400 text-sm">txns</span>
+            <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-xl px-4 py-2.5">
+              <span className="text-gray-700 font-bold text-base">#</span>
+              <span className="text-gray-700 font-bold text-base">{filterTotals.count}</span>
+              <span className="text-gray-500 text-sm">txns</span>
             </div>
           </div>
         )}
@@ -825,7 +862,7 @@ function TransactionsPage() {
               className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                 dateGrouping === option.value
                   ? 'bg-purple-600 text-white'
-                  : 'bg-slate-700 text-slate-400 hover:bg-slate-600'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
               {option.label}
@@ -835,8 +872,8 @@ function TransactionsPage() {
 
         <div className="space-y-3">
           {!filteredTransactions || filteredTransactions.length === 0 ? (
-            <div className="rounded-lg bg-slate-800 p-8 text-center">
-              <p className="text-slate-400">
+            <div className="rounded-lg bg-white border border-gray-200 p-8 text-center">
+              <p className="text-gray-500">
                 {hasActiveFilters
                   ? 'No transactions match your filters.'
                   : 'No transactions yet. Add one to get started!'}
@@ -854,21 +891,21 @@ function TransactionsPage() {
               const isExpanded = expandedGroups.has(group.key)
 
               return (
-                <div key={group.key} className="bg-slate-800 rounded-lg overflow-hidden">
+                <div key={group.key} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                   {/* Group Header (Clickable) */}
                   <button
                     onClick={() => toggleGroup(group.key)}
-                    className="w-full flex items-center justify-between p-4 hover:bg-slate-750 transition-colors"
+                    className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       {isExpanded ? (
-                        <ChevronDown className="w-5 h-5 text-slate-400" />
+                        <ChevronDown className="w-5 h-5 text-gray-400" />
                       ) : (
-                        <ChevronRight className="w-5 h-5 text-slate-400" />
+                        <ChevronRight className="w-5 h-5 text-gray-400" />
                       )}
                       <div className="text-left">
-                        <div className="font-medium text-white">{group.label}</div>
-                        <div className="text-sm text-slate-400">
+                        <div className="font-medium text-gray-900">{group.label}</div>
+                        <div className="text-sm text-gray-500">
                           {group.transactions.length} transaction{group.transactions.length !== 1 ? 's' : ''}
                         </div>
                       </div>
@@ -877,23 +914,23 @@ function TransactionsPage() {
                     <div className="text-right">
                       <div
                         className={`font-medium ${
-                          group.net >= 0 ? 'text-green-400' : 'text-red-400'
+                          group.net >= 0 ? 'text-green-600' : 'text-red-600'
                         }`}
                       >
                         {group.net >= 0 ? '+' : ''}
                         {formatCurrency(group.net)}
                       </div>
-                      <div className="text-xs text-slate-500">
-                        <span className="text-green-400/70">+{formatCurrency(group.totalIncome)}</span>
+                      <div className="text-xs text-gray-400">
+                        <span className="text-green-600">+{formatCurrency(group.totalIncome)}</span>
                         {' / '}
-                        <span className="text-red-400/70">-{formatCurrency(group.totalExpense)}</span>
+                        <span className="text-red-600">-{formatCurrency(group.totalExpense)}</span>
                       </div>
                     </div>
                   </button>
 
                   {/* Expanded Transactions */}
                   {isExpanded && (
-                    <div className="border-t border-slate-700">
+                    <div className="border-t border-gray-100">
                       <TransactionList
                         transactions={group.transactions}
                         onEdit={handleEdit}
@@ -908,15 +945,6 @@ function TransactionsPage() {
           )}
         </div>
       </div>
-
-      {/* FAB — mobile only, fixed bottom-right above bottom nav */}
-      <button
-        onClick={() => setIsModalOpen(true)}
-        className="md:hidden fixed bottom-20 right-4 z-40 w-14 h-14 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg"
-        aria-label="Add transaction"
-      >
-        <Plus size={24} />
-      </button>
 
       <AddTransactionModal
         isOpen={isModalOpen}

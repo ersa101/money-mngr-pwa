@@ -1,48 +1,55 @@
-/**
- * Shared AI key resolution utility — used by SMS parser, FAIN, and Phase 2.
- * Resolution order:
- *  1. User's Gemini key from IndexedDB appSettings
- *  2. User's Claude key from IndexedDB appSettings
- *  3. GEMINI_API_KEY from env (developer fallback)
- *  4. ANTHROPIC_API_KEY from env (last resort)
- *  5. null → caller must show "Add API key in Settings"
- */
+'use client'
+// Client-side AI key utilities only.
+// Server-side waterfall lives in resolveAIKeyServer.ts (no directive).
+// Re-exports AIProvider + AIKeySlot so existing client imports don't break.
 
-import { db } from '@/lib/db';
+export type { AIProvider, AIKeySlot } from '@/lib/resolveAIKeyServer'
 
-export type AIProvider = 'gemini' | 'claude';
+// ─── Client-side compat helper ────────────────────────────────────────────────
+// Used by legacy stats components (e.g. UncomfortableTruth) that call resolveAIKey()
+// imperatively. Reads from the new 3-slot system in IndexedDB.
+
+import type { AIProvider } from '@/lib/resolveAIKeyServer'
 
 export interface ResolvedKey {
-  provider: AIProvider;
-  key: string;
-  source: 'user_settings' | 'env';
+  key: string | null
+  provider: AIProvider | null
+  showSettingsPrompt: boolean
 }
 
-export async function resolveAIKey(): Promise<ResolvedKey | null> {
-  // 1. User's own Gemini key
-  const geminiSetting = await db.appSettings.get('gemini_api_key');
-  if (geminiSetting?.value?.trim()) {
-    return { provider: 'gemini', key: geminiSetting.value.trim(), source: 'user_settings' };
-  }
+async function readSetting(settingKey: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open('moneyMngrDB')
+      req.onerror = () => resolve(null)
+      req.onsuccess = () => {
+        const idb = req.result
+        if (!idb.objectStoreNames.contains('appSettings')) { idb.close(); return resolve(null) }
+        try {
+          const tx = idb.transaction('appSettings', 'readonly')
+          const store = tx.objectStore('appSettings')
+          const getReq = store.get(settingKey)
+          getReq.onsuccess = () => {
+            idb.close()
+            const record = getReq.result as { key: string; value: string } | undefined
+            resolve(record?.value?.trim() || null)
+          }
+          getReq.onerror = () => { idb.close(); resolve(null) }
+        } catch { idb.close(); resolve(null) }
+      }
+    } catch { resolve(null) }
+  })
+}
 
-  // 2. User's own Claude key
-  const claudeSetting = await db.appSettings.get('claude_api_key');
-  if (claudeSetting?.value?.trim()) {
-    return { provider: 'claude', key: claudeSetting.value.trim(), source: 'user_settings' };
+export async function resolveAIKey(): Promise<ResolvedKey> {
+  for (let n = 1; n <= 3; n++) {
+    const [providerVal, keyVal] = await Promise.all([
+      readSetting(`ai_slot_${n}_provider`),
+      readSetting(`ai_slot_${n}_key`),
+    ])
+    if (keyVal) {
+      return { key: keyVal, provider: (providerVal as AIProvider) || 'gemini', showSettingsPrompt: false }
+    }
   }
-
-  // 3. Developer Gemini env key
-  const envGemini = process.env.NEXT_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-  if (envGemini?.trim()) {
-    return { provider: 'gemini', key: envGemini.trim(), source: 'env' };
-  }
-
-  // 4. Developer Anthropic env key
-  const envClaude = process.env.ANTHROPIC_API_KEY;
-  if (envClaude?.trim()) {
-    return { provider: 'claude', key: envClaude.trim(), source: 'env' };
-  }
-
-  // 5. No key available
-  return null;
+  return { key: null, provider: null, showSettingsPrompt: true }
 }

@@ -5,13 +5,10 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { LayoutGrid, Home, CreditCard, Landmark, BarChart3, Brain, Settings, LogOut } from 'lucide-react'
 import { SyncStatusIndicator } from './SyncStatusIndicator'
-import { useSync } from '@/hooks/useSync'
 
 export function Navigation() {
   const pathname = usePathname()
   const { data: session } = useSession()
-  const userId = session?.user?.id || session?.user?.email || null
-  const { syncState, isOnline, sync, forceSync } = useSync(userId)
 
   const isActive = (href: string) => {
     return pathname === href || pathname.startsWith(href + '/')
@@ -54,17 +51,6 @@ export function Navigation() {
             Transactions
           </Link>
           <Link
-            href="/accounts"
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
-              isActive('/accounts')
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            }`}
-          >
-            <Landmark className="w-4 h-4" />
-            Accounts
-          </Link>
-          <Link
             href="/stats"
             className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
               isActive('/stats')
@@ -100,12 +86,7 @@ export function Navigation() {
 
           {/* Sync status indicator */}
           <div className="ml-4">
-            <SyncStatusIndicator
-              syncState={syncState}
-              isOnline={isOnline}
-              onRetry={sync}
-              onForceSync={forceSync}
-            />
+            <SyncStatusIndicator />
           </div>
 
           {/* User avatar and sign-out */}

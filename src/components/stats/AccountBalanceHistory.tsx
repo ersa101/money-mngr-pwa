@@ -3,6 +3,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import type { Transaction } from '@/types/database';
+import { sortByName } from '@/lib/sortUtils';
 import { useState, useMemo } from 'react'
 import {
   LineChart,
@@ -21,10 +22,13 @@ interface AccountBalanceHistoryProps {
   dateRange: { startDate: Date; endDate: Date }
 }
 
+type Granularity = '1D' | '1W' | '1M'
+
 export function AccountBalanceHistory({
   dateRange,
 }: AccountBalanceHistoryProps) {
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
+  const [granularity, setGranularity] = useState<Granularity>('1M')
   const db = useDb()
 
   // Fetch accounts
@@ -57,7 +61,7 @@ export function AccountBalanceHistory({
       return []
     }
 
-    const account = accounts.find((a) => a.id === selectedAccountId)
+    const account = accounts.filter(Boolean).find((a) => a.id === selectedAccountId)
     if (!account) return []
 
     // Get all days in range
@@ -105,6 +109,16 @@ export function AccountBalanceHistory({
     return history
   }, [accounts, allTransactions, selectedAccountId, dateRange])
 
+  const sampledHistory = useMemo(() => {
+    if (!balanceHistory.length || granularity === '1D') return balanceHistory
+    const bucketKey = (d: Date) => granularity === '1W'
+      ? Math.floor((d.getTime() - dateRange.startDate.getTime()) / (7 * 24 * 60 * 60 * 1000))
+      : d.getFullYear() * 100 + d.getMonth()
+    const map = new Map<number, typeof balanceHistory[0]>()
+    balanceHistory.forEach(p => map.set(bucketKey(p.dateObj), p))
+    return Array.from(map.values())
+  }, [balanceHistory, granularity, dateRange.startDate])
+
   if (!accounts) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
   }
@@ -118,17 +132,34 @@ export function AccountBalanceHistory({
   }
 
   const selectedAccount = selectedAccountId
-    ? accounts.find((a) => a.id === selectedAccountId)
+    ? accounts.filter(Boolean).find((a) => a.id === selectedAccountId)
     : null
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-4">Account Balance History</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Account Balance History</h3>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {(['1D', '1W', '1M'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGranularity(g)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                  granularity === g
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Account Selector */}
         <div className="flex flex-wrap gap-2">
-          {accounts.map((account) => (
+          {sortByName(accounts.filter(Boolean)).map((account) => (
             <button
               key={`account-btn-${account.id}`}
               onClick={() => setSelectedAccountId(account.id || null)}
@@ -161,7 +192,7 @@ export function AccountBalanceHistory({
           </div>
 
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={balanceHistory}>
+            <AreaChart data={sampledHistory}>
               <defs>
                 <linearGradient id="colorBalance" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.8} />

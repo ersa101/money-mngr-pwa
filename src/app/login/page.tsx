@@ -5,22 +5,22 @@ import { LayoutGrid } from 'lucide-react'
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-8 text-center">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="p-4 bg-blue-600/20 rounded-2xl">
-            <LayoutGrid className="w-12 h-12 text-blue-400" />
+          <div className="p-4 bg-blue-50 rounded-2xl">
+            <LayoutGrid className="w-12 h-12 text-blue-600" />
           </div>
-          <h1 className="text-3xl font-bold text-white">Money Mngr</h1>
-          <p className="text-slate-400 text-sm">Privacy-first personal finance manager</p>
+          <h1 className="text-3xl font-bold text-gray-900">Money Mngr</h1>
+          <p className="text-gray-500 text-sm">Privacy-first personal finance manager</p>
         </div>
 
         {/* Sign-in card */}
-        <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 space-y-6">
+        <div className="bg-white rounded-xl p-8 border border-gray-200 space-y-6">
           <div>
-            <h2 className="text-xl font-semibold text-white">Welcome</h2>
-            <p className="text-slate-400 text-sm mt-1">Sign in to access your finances</p>
+            <h2 className="text-xl font-semibold text-gray-900">Welcome</h2>
+            <p className="text-gray-500 text-sm mt-1">Sign in to access your finances</p>
           </div>
 
           <button
@@ -49,7 +49,7 @@ export default function LoginPage() {
           </button>
         </div>
 
-        <p className="text-slate-500 text-xs">
+        <p className="text-gray-400 text-xs">
           Your data stays private. We use Google Sheets as your personal database.
         </p>
       </div>

@@ -53,16 +53,24 @@ export function SnapshotSection() {
     setCreating(true);
     setStatusMsg(null);
     try {
-      const [accounts, categories, transactions] = await Promise.all([
+      const [accounts, categories, transactions, filterPresets, budgets, goals, lifeEvents, feedbackLog, appSettings, computedInsights, categoryBuckets] = await Promise.all([
         db.accounts.toArray(),
         db.categories.toArray(),
         db.transactions.toArray(),
+        db.filterPresets.toArray(),
+        db.budgets.toArray(),
+        db.goals.toArray(),
+        db.lifeEvents.toArray(),
+        db.feedbackLog.toArray(),
+        db.appSettings.toArray(),
+        db.computedInsights.toArray(),
+        db.categoryBuckets.toArray(),
       ]);
 
       const res = await fetch('/api/snapshots/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accounts, categories, transactions }),
+        body: JSON.stringify({ accounts, categories, transactions, filterPresets, budgets, goals, lifeEvents, feedbackLog, appSettings, computedInsights, categoryBuckets }),
       });
 
       const json = await res.json();
@@ -94,13 +102,25 @@ export function SnapshotSection() {
       const json = await res.json();
 
       if (json.success) {
-        await db.transaction('rw', db.accounts, db.categories, db.transactions, async () => {
-          await db.accounts.clear();
-          await db.categories.clear();
-          await db.transactions.clear();
-          await db.accounts.bulkAdd(json.data.accounts);
-          await db.categories.bulkAdd(json.data.categories);
-          await db.transactions.bulkAdd(json.data.transactions);
+        const d = json.data;
+        await db.transaction('rw', [
+          db.accounts, db.categories, db.transactions, db.filterPresets,
+          db.budgets, db.goals, db.categoryBuckets, db.appSettings,
+          db.lifeEvents, db.feedbackLog, db.computedInsights,
+        ], async () => {
+          // Replace tables: clear then bulkPut
+          await db.accounts.clear();       if (d?.accounts?.length)       await db.accounts.bulkPut(d.accounts);
+          await db.categories.clear();     if (d?.categories?.length)     await db.categories.bulkPut(d.categories);
+          await db.transactions.clear();   if (d?.transactions?.length)   await db.transactions.bulkPut(d.transactions);
+          await db.filterPresets.clear();  if (d?.filterPresets?.length)  await db.filterPresets.bulkPut(d.filterPresets);
+          await db.budgets.clear();        if (d?.budgets?.length)        await db.budgets.bulkPut(d.budgets);
+          await db.goals.clear();          if (d?.goals?.length)          await db.goals.bulkPut(d.goals);
+          await db.categoryBuckets.clear();if (d?.categoryBuckets?.length)await db.categoryBuckets.bulkPut(d.categoryBuckets);
+          await db.appSettings.clear();    if (d?.appSettings?.length)    await db.appSettings.bulkPut(d.appSettings);
+          // Append tables: bulkPut only
+          if (d?.lifeEvents?.length)       await db.lifeEvents.bulkPut(d.lifeEvents);
+          if (d?.feedbackLog?.length)      await db.feedbackLog.bulkPut(d.feedbackLog);
+          if (d?.computedInsights?.length) await db.computedInsights.bulkPut(d.computedInsights);
         });
         setStatusMsg({ type: 'success', text: 'Data restored successfully!' });
         setRestoreTarget(null);
@@ -123,12 +143,12 @@ export function SnapshotSection() {
   // ── Token Expired State ────────────────────────────────────────────────────
   if (tokenExpired) {
     return (
-      <div className="bg-yellow-900/30 border border-yellow-600 rounded-xl p-5">
+      <div className="bg-amber-50 border border-amber-300 rounded-xl p-5">
         <div className="flex items-center gap-3 mb-3">
-          <AlertTriangle className="text-yellow-400 w-5 h-5" />
-          <span className="font-medium text-yellow-300">Session expired</span>
+          <AlertTriangle className="text-amber-500 w-5 h-5" />
+          <span className="font-medium text-amber-700">Session expired</span>
         </div>
-        <p className="text-sm text-slate-400 mb-4">
+        <p className="text-sm text-gray-500 mb-4">
           Your Google session has expired. Please sign out and sign in again to re-enable Drive backups.
         </p>
         <button
@@ -143,23 +163,23 @@ export function SnapshotSection() {
 
   // ── Main UI ────────────────────────────────────────────────────────────────
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 p-6">
+    <div className="rounded-lg border border-gray-200 bg-white p-6">
     <div className="space-y-4">
 
       {/* Header row */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold text-white flex items-center gap-2">
-            <CloudIcon className="w-5 h-5 text-blue-400" />
+          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+            <CloudIcon className="w-5 h-5 text-blue-600" />
             Drive Snapshots
           </h3>
           {lastBackupAt && (
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-gray-500 mt-0.5">
               Last backup: {new Date(lastBackupAt).toLocaleString()}
             </p>
           )}
           {!lastBackupAt && (
-            <p className="text-xs text-orange-400 mt-0.5">No backups yet</p>
+            <p className="text-xs text-orange-500 mt-0.5">No backups yet</p>
           )}
         </div>
 
@@ -169,7 +189,7 @@ export function SnapshotSection() {
               href={folderLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-slate-300"
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600"
             >
               <FolderOpen className="w-4 h-4" />
               Open in Drive
@@ -195,8 +215,8 @@ export function SnapshotSection() {
       {statusMsg && (
         <div className={`flex items-center gap-2 px-4 py-3 rounded-lg text-sm ${
           statusMsg.type === 'success'
-            ? 'bg-green-900/50 text-green-400 border border-green-700'
-            : 'bg-red-900/50 text-red-400 border border-red-700'
+            ? 'bg-green-50 text-green-600 border border-green-200'
+            : 'bg-red-50 text-red-600 border border-red-200'
         }`}>
           {statusMsg.type === 'success'
             ? <CheckCircle className="w-4 h-4" />
@@ -208,7 +228,7 @@ export function SnapshotSection() {
               href={folderLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="ml-auto text-blue-400 underline text-xs"
+              className="ml-auto text-blue-600 underline text-xs"
             >
               View in Drive →
             </a>
@@ -218,38 +238,38 @@ export function SnapshotSection() {
 
       {/* Snapshot list */}
       {loading ? (
-        <p className="text-sm text-slate-500">Loading snapshots...</p>
+        <p className="text-sm text-gray-500">Loading snapshots...</p>
       ) : snapshots.length === 0 ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-gray-500">
           No snapshots yet. Your backups will appear here and in your Google Drive.
         </p>
       ) : (
         <div className="space-y-2">
-          <p className="text-xs text-slate-500">{snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''} stored in your Drive</p>
+          <p className="text-xs text-gray-500">{snapshots.length} snapshot{snapshots.length !== 1 ? 's' : ''} stored in your Drive</p>
           {snapshots.map((snap) => (
             <div
               key={snap.id}
-              className="flex items-center justify-between bg-slate-800 rounded-lg px-4 py-3"
+              className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg px-4 py-3"
             >
               <div>
-                <p className="text-sm font-medium text-white">
+                <p className="text-sm font-medium text-gray-900">
                   {new Date(snap.createdAt).toLocaleString()}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-gray-400">
                   {(snap.size / 1024).toFixed(1)} KB
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setRestoreTarget(snap)}
-                  className="p-2 hover:bg-slate-700 rounded-lg text-green-400"
+                  className="p-2 hover:bg-gray-100 rounded-lg text-green-600"
                   title="Restore this snapshot"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleDelete(snap.id)}
-                  className="p-2 hover:bg-slate-700 rounded-lg text-red-400"
+                  className="p-2 hover:bg-gray-100 rounded-lg text-red-600"
                   title="Delete snapshot"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -263,24 +283,24 @@ export function SnapshotSection() {
       {/* Restore Confirmation Modal */}
       {restoreTarget && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-slate-800 rounded-xl p-6 max-w-sm w-full mx-4">
-            <h4 className="font-semibold text-white mb-2 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-yellow-400" />
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full mx-4">
+            <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
               Restore Snapshot?
             </h4>
-            <p className="text-sm text-slate-400 mb-1">
-              This will <strong className="text-white">replace all current data</strong> with the snapshot from:
+            <p className="text-sm text-gray-600 mb-1">
+              This will <strong className="text-gray-900">replace all current data</strong> with the snapshot from:
             </p>
-            <p className="text-sm text-blue-300 font-medium mb-4">
+            <p className="text-sm text-blue-600 font-medium mb-4">
               {new Date(restoreTarget.createdAt).toLocaleString()}
             </p>
-            <p className="text-xs text-slate-500 mb-6">
+            <p className="text-xs text-gray-400 mb-6">
               This action cannot be undone. Consider creating a new snapshot first.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setRestoreTarget(null)}
-                className="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm"
+                className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-700"
               >
                 Cancel
               </button>

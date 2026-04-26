@@ -4,23 +4,21 @@ import { useDb } from '@/contexts/DbContext';
 
 export interface SafeToSpendResult {
   safeToSpend: number;
-  totalBalance: number;
-  totalThreshold: number;
+  accountCount: number;
   isNegative: boolean;
 }
 
-/** Computes the aggregate safe-to-spend across all active accounts that include in net worth. */
+/** Computes safe-to-spend only from accounts where the user has explicitly set a threshold. */
 export function useSafeToSpend(): SafeToSpendResult {
   const db = useDb();
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
 
   return useMemo(() => {
-    const activeAccounts = accounts.filter(
-      (a) => a.includeInNetWorth !== false && !a.isLiability
+    const thresholdAccounts = accounts.filter((a) => (a.thresholdValue ?? 0) > 0);
+    const safeToSpend = thresholdAccounts.reduce(
+      (sum, a) => sum + ((a.balance || 0) - (a.thresholdValue || 0)),
+      0
     );
-    const totalBalance = activeAccounts.reduce((sum, a) => sum + (a.balance || 0), 0);
-    const totalThreshold = activeAccounts.reduce((sum, a) => sum + (a.thresholdValue || 0), 0);
-    const safeToSpend = totalBalance - totalThreshold;
-    return { safeToSpend, totalBalance, totalThreshold, isNegative: safeToSpend < 0 };
+    return { safeToSpend, accountCount: thresholdAccounts.length, isNegative: safeToSpend < 0 };
   }, [accounts]);
 }

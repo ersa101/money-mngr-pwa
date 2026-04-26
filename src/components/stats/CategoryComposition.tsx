@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import type { Transaction } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
@@ -44,7 +45,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   // Filter transactions by date range
   const transactions = useMemo(() => {
@@ -52,7 +53,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
 
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
@@ -101,7 +102,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
 
   if (categoryData.length === 0) {
     return (
-      <div className="bg-card rounded-lg border border-border p-6 text-center py-8 text-muted-foreground">
+      <div className="bg-white rounded-lg border border-gray-200 p-6 text-center py-8 text-muted-foreground">
         No {(type ?? transactionType).toLowerCase()} data for this period
       </div>
     )
@@ -110,7 +111,7 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
   const total = categoryData.reduce((sum, item) => sum + item.value, 0)
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold">
           {type === 'EXPENSE' ? 'Expense' : type === 'INCOME' ? 'Income' : 'Category'} Composition
@@ -148,8 +149,8 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
             cx="50%"
             cy="50%"
             labelLine={false}
-            label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
-            outerRadius={100}
+            label={({ percent }) => percent >= 0.03 ? `${(percent * 100).toFixed(0)}%` : ''}
+            outerRadius={110}
             fill="#8884d8"
             dataKey="value"
             onClick={(entry) => {
@@ -176,7 +177,6 @@ export function CategoryComposition({ dateRange, type, onCategoryClick }: Catego
               border: '1px solid var(--border)',
             }}
           />
-          <Legend />
         </PieChart>
       </ResponsiveContainer>
 

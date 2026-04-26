@@ -7,7 +7,7 @@ export interface FAINChatContext {
   topSubCategories: { name: string; total: number }[];
   monthlyTotals: { month: string; income: number; expense: number }[];
   accountSummary: { name: string; type: string; balance: number }[];
-  recentTransactions: { date: string; amount: number; category: string; note: string }[];
+  recentTransactions: { date: string; amount: number; category: string }[];
 }
 
 export function buildFAINContext(
@@ -80,7 +80,6 @@ export function buildFAINContext(
       date: t.date.slice(0, 10),
       amount: t.amount,
       category: t.categoryId ? catMap.get(t.categoryId) ?? '' : '',
-      note: t.description ?? '',
     }));
 
   return {

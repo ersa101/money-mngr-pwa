@@ -26,11 +26,11 @@ export interface Account {
   thresholdValue: number;
   color?: string;
   icon?: string;
-  group?: string; // Custom grouping name for display
-  includeInNetWorth?: boolean; // Whether to include in net worth calculation (default: true)
-  isLiability?: boolean; // Whether this account is a liability (e.g., credit card debt)
+  group?: string;
+  includeInNetWorth?: boolean;
+  isLiability?: boolean;
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 export interface Category {
@@ -42,11 +42,27 @@ export interface Category {
   color?: string;
   sortOrder?: number;
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 export type TransactionStatus = 'CONFIRMED' | 'PENDING' | 'REJECTED';
 export type TransactionSource = 'MANUAL' | 'CSV_IMPORT' | 'MAGIC_BOX';
+
+export interface FilterPreset {
+  id?: number;
+  name: string;
+  searchText?: string;
+  accountId?: number;
+  transactionType?: 'EXPENSE' | 'INCOME' | 'TRANSFER' | 'all';
+  categoryId?: number;
+  subCategoryId?: number;
+  dateOffsetType?: string;
+  dateOffsetStart?: string;
+  dateOffsetEnd?: string;
+  amountMin?: number;
+  amountMax?: number;
+  createdAt?: string;
+}
 
 export interface Transaction {
   id?: number;
@@ -63,11 +79,11 @@ export interface Transaction {
   source: TransactionSource;
   currency: string;
   linkedTransactionId?: number;
-  // CSV fallback fields for category resolution
   csvCategory?: string;
   csvSubcategory?: string;
+  sourceHash?: string;  // SHA-256 (16 hex chars) of: isoDate|paise|accountName|transactionType — dedup key
   createdAt?: string;
-  updatedAt?: string;
+  updatedAt?: number;
 }
 
 // ─── Phase 1 additions ────────────────────────────────────────────────────────
@@ -123,15 +139,17 @@ export interface AppSetting {
 
 export interface ComputedInsight {
   id?: number;
-  key: string;        // e.g. 'lifestyle_inflation', 'seasonal_heatmap', 'correlation_web'
-  value: string;      // JSON stringified result
-  computedAt: string; // ISO timestamp
-  version: number;    // increment if computation logic changes, triggers recompute
+  key: string;         // e.g. 'lifestyle_inflation' | 'seasonal_heatmap' | 'correlation_web'
+  value: string;       // JSON stringified result
+  computedAt: string;  // ISO timestamp
+  version: number;     // increment if computation logic changes, triggers recompute
 }
+
+export type BucketName = 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST';
 
 export interface CategoryBucket {
   id?: number;
   categoryId: number;
   categoryName: string;
-  bucketName: 'LIFE_ESSENTIALS' | 'PEOPLE_SOCIAL' | 'TRANSPORT' | 'YOURSELF' | 'SAVINGS_INVEST';
+  bucketName: BucketName;
 }

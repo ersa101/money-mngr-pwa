@@ -6,6 +6,11 @@ import type { Account } from '@/types/database'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Button } from './ui/button'
 import {
+  getAccountClassification,
+  classificationToFlags,
+  type AccountClassification,
+} from '@/lib/accountClassification'
+import {
   Building2,
   Wallet,
   Smartphone,
@@ -282,36 +287,43 @@ export function AccountModal({
             />
           </div>
 
-          {/* Include in Net Worth */}
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="includeInNetWorth"
-              checked={formData.includeInNetWorth !== false}
-              onChange={(e) =>
-                setFormData({ ...formData, includeInNetWorth: e.target.checked })
-              }
-              className="w-4 h-4 rounded border-border"
-            />
-            <label htmlFor="includeInNetWorth" className="text-sm font-medium">
-              Include in Net Worth calculation
-            </label>
-          </div>
-
-          {/* Is Liability */}
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="isLiability"
-              checked={formData.isLiability || false}
-              onChange={(e) =>
-                setFormData({ ...formData, isLiability: e.target.checked })
-              }
-              className="w-4 h-4 rounded border-border"
-            />
-            <label htmlFor="isLiability" className="text-sm font-medium">
-              This is a liability (e.g., credit card debt, loan)
-            </label>
+          {/* V2.7.4 D040 — Tri-state classification (replaces NW + Liability checkboxes,
+              matches AccountsTable inline editor) */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Classification</label>
+            {(() => {
+              const current = getAccountClassification(formData as Account)
+              const setClass = (c: AccountClassification) =>
+                setFormData({ ...formData, ...classificationToFlags(c) })
+              return (
+                <div className="inline-flex rounded-lg border border-border overflow-hidden text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setClass('liability')}
+                    className={`px-3 py-1.5 transition-colors ${current === 'liability' ? 'bg-red-500 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-red-500/10'}`}
+                  >
+                    Liability
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClass('neither')}
+                    className={`px-3 py-1.5 border-x border-border transition-colors ${current === 'neither' ? 'bg-gray-400 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-gray-400/10'}`}
+                  >
+                    Neither
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClass('asset')}
+                    className={`px-3 py-1.5 transition-colors ${current === 'asset' ? 'bg-emerald-500 text-white' : 'bg-muted/30 text-muted-foreground hover:bg-emerald-500/10'}`}
+                  >
+                    Asset
+                  </button>
+                </div>
+              )
+            })()}
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Asset = counted in Net Worth · Liability = amount owed (CC, loan) · Neither = excluded
+            </p>
           </div>
 
           {/* Actions */}

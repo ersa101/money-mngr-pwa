@@ -2,7 +2,7 @@
 
 import type { MySubClassedDB } from './db'
 import { validateCSV } from './csvValidator'
-import { debouncedSync } from './sync'
+import { computeSourceHash, getDBDateRange, getExistingHashesInRange } from './importUtils'
 
 export interface CSVRow {
   date?: string
@@ -15,9 +15,32 @@ export interface CSVRow {
   type?: string // 'Expense', 'Income', 'Transfer-Out', 'Transfer-In'
 }
 
+// ─── Return types ────────────────────────────────────────────────────────────
+
+/** A transaction that was in the overlap window but NOT found in the DB — shown in preview. */
+export interface PendingMissedRow {
+  txnObj: Record<string, unknown>
+  balanceChanges: Array<{ accountId: number; delta: number }>
+  display: {
+    date: string       // ISO string for display
+    amount: number
+    account: string
+    type: string       // 'EXPENSE' | 'INCOME' | 'TRANSFER'
+    category: string
+  }
+}
+
+export type ImportResult =
+  | { status: 'COMPLETE'; imported: number; skipped: number; errors: string[] }
+  | { status: 'PREVIEW_REQUIRED'; blindInserted: number; skipped: number; errors: string[]; missed: PendingMissedRow[] }
+
+// ─── Caches ──────────────────────────────────────────────────────────────────
+
 // Cache maps for async category/account creation
 const categoryCache = new Map<string, number>()
 const accountCache = new Map<string, number>()
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 // Helper to get or create a category with proper awaiting
 async function getOrCreateCategory(
@@ -35,7 +58,7 @@ async function getOrCreateCategory(
   }
 
   // Check database
-  let existing = await db.categories
+  const existing = await db.categories
     .where('name')
     .equalsIgnoreCase(name)
     .filter(c => c && c.type === type && (c.parentId === parentId || (!c.parentId && !parentId)))
@@ -53,7 +76,7 @@ async function getOrCreateCategory(
     parentId: parentId || undefined,
     icon: '',
     createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    updatedAt: Date.now(),
   })
 
   // Cache the ACTUAL ID, not a placeholder
@@ -72,6 +95,8 @@ async function getOrCreateSubCategory(
   const subCategoryId = await getOrCreateCategory(db, name, type, parentId)
   return { categoryId: parentId, subCategoryId }
 }
+
+// ─── CSV parser ───────────────────────────────────────────────────────────────
 
 export async function parseCSV(file: File): Promise<CSVRow[]> {
   return new Promise((resolve, reject) => {
@@ -223,30 +248,55 @@ export async function parseCSV(file: File): Promise<CSVRow[]> {
   })
 }
 
+// ─── Insert confirmed missed rows (called from UI after user confirms preview) ──
+
+export async function insertConfirmedMissedRows(
+  db: MySubClassedDB,
+  rows: PendingMissedRow[]
+): Promise<number> {
+  if (!rows.length) return 0
+
+  await db.transactions.bulkAdd(rows.map(r => r.txnObj) as any[])
+
+  // Aggregate and apply balance changes
+  const deltas = new Map<number, number>()
+  for (const row of rows) {
+    for (const ch of row.balanceChanges) {
+      deltas.set(ch.accountId, (deltas.get(ch.accountId) || 0) + ch.delta)
+    }
+  }
+  for (const [accountId, delta] of deltas.entries()) {
+    const account = await db.accounts.get(accountId)
+    if (account) {
+      await db.accounts.update(accountId, {
+        balance: Math.round((account.balance + delta) * 100) / 100,
+      })
+    }
+  }
+
+  return rows.length
+}
+
+// ─── Main import function ─────────────────────────────────────────────────────
+
 export async function importTransactionsFromCSV(
   db: MySubClassedDB,
   rows: CSVRow[],
   onProgress?: (current: number, total: number) => void
-) {
+): Promise<ImportResult> {
   const errors: string[] = []
 
   // Clear caches at start of each import
   categoryCache.clear()
   accountCache.clear()
 
-  // Total steps: 10% for setup, 10% for accounts/categories, 70% for processing rows, 10% for saving
   let currentStep = 0
-
   const reportProgress = () => {
-    if (onProgress) {
-      onProgress(Math.min(currentStep, rows.length), rows.length)
-    }
+    if (onProgress) onProgress(Math.min(currentStep, rows.length), rows.length)
   }
 
-  // Phase 1: Pre-process all rows and collect unique accounts/categories
+  // Phase 1: Load existing accounts/categories
   reportProgress()
-
-  // Loading existing data (5% progress)
   const existingAccounts = await db.accounts.toArray()
   currentStep = Math.ceil(rows.length * 0.02)
   reportProgress()
@@ -257,31 +307,28 @@ export async function importTransactionsFromCSV(
 
   // Populate caches with null safety
   for (const a of existingAccounts) {
-    if (a && a.name && a.id) {
-      accountCache.set(a.name, a.id)
-    }
+    if (a && a.name && a.id) accountCache.set(a.name, a.id)
   }
-
-  // Cache key must match format used in getOrCreateCategory: `${type}:${name}:${parentId || 0}`
   for (const c of existingCategories) {
     if (c && c.name && c.type && c.id) {
-      const cacheKey = `${c.type}:${c.name}:${c.parentId || 0}`
-      categoryCache.set(cacheKey, c.id)
+      categoryCache.set(`${c.type}:${c.name}:${c.parentId || 0}`, c.id)
     }
   }
 
-  // Collect new accounts to create
+  // Get DB date range for zone classification (BEFORE Phase 2 so we don't count new accounts)
+  const { earliest: dbEarliest, latest: dbLatest } = await getDBDateRange(db)
+  const isEmptyDB = !dbEarliest || !dbLatest
+
+  // Phase 2: First pass - identify new accounts
   const newAccounts: Array<{ name: string; type: string; balance: number; thresholdValue: number; color: string; icon: string }> = []
   const hasLetters = (s?: string) => !!(s && /[A-Za-z]/.test(s))
 
-  // Phase 2: First pass - identify new accounts (5-10% progress)
-  // Note: Categories are now created inline during Phase 5 using async getOrCreateCategory
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
     if (!row) continue
 
     if (row.account && hasLetters(row.account) && !accountCache.has(row.account)) {
-      accountCache.set(row.account, -1) // placeholder
+      accountCache.set(row.account, -1)
       newAccounts.push({
         name: row.account,
         type: 'BANK',
@@ -295,7 +342,6 @@ export async function importTransactionsFromCSV(
     const typeStr = (row.type || '').toLowerCase()
     const isTransfer = typeStr.includes('transfer')
 
-    // For transfers, category field is used as destination account
     if (isTransfer && row.category && hasLetters(row.category) && !accountCache.has(row.category)) {
       accountCache.set(row.category, -1)
       newAccounts.push({
@@ -308,7 +354,6 @@ export async function importTransactionsFromCSV(
       })
     }
 
-    // Update progress during scanning (5-10%)
     if (i % 500 === 0) {
       currentStep = Math.ceil(rows.length * 0.05) + Math.ceil((i / rows.length) * rows.length * 0.05)
       reportProgress()
@@ -318,7 +363,7 @@ export async function importTransactionsFromCSV(
   currentStep = Math.ceil(rows.length * 0.10)
   reportProgress()
 
-  // Phase 3: Create accounts one by one (10-15% progress)
+  // Phase 3: Create new accounts
   for (let i = 0; i < newAccounts.length; i++) {
     const acc = newAccounts[i]
     const id = await db.accounts.add(acc as any)
@@ -330,16 +375,23 @@ export async function importTransactionsFromCSV(
   currentStep = Math.ceil(rows.length * 0.15)
   reportProgress()
 
-  // Phase 5: Build all transactions (15-85% progress)
-  const transactionsToAdd: any[] = []
-  const accountBalanceDeltas = new Map<number, number>() // accountId -> balance change
+  // Phase 5: Build all transaction objects with sourceHash + zone classification
+  type Zone = 'BEFORE' | 'AFTER' | 'OVERLAP'
+  type BuiltEntry = {
+    txnObj: Record<string, unknown>
+    sourceHash: string
+    zone: Zone
+    balanceChanges: Array<{ accountId: number; delta: number }>
+    display: PendingMissedRow['display']
+  }
+  const builtEntries: BuiltEntry[] = []
 
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex]
     if (!row) continue
 
     try {
-      // Parse amount — blank or missing treated as 0; negative values rejected
+      // Parse amount
       const amount = parseFloat(row.amount || '0')
       if (isNaN(amount) || amount < 0) {
         errors.push(`Invalid amount (${row.amount}) in row ${rowIndex + 2}`)
@@ -352,12 +404,11 @@ export async function importTransactionsFromCSV(
         const dateStr = row.date.trim()
         let parsed: Date | null = null
 
-        // Try various formats
         const patterns = [
-          /^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/, // dd-MM-yyyy HH:mm
-          /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/, // dd/MM/yyyy HH:mm
-          /^(\d{1,2})-(\d{1,2})-(\d{4})$/, // dd-MM-yyyy
-          /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, // dd/MM/yyyy
+          /^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+          /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+          /^(\d{1,2})-(\d{1,2})-(\d{4})$/,
+          /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
         ]
 
         for (const pattern of patterns) {
@@ -369,7 +420,6 @@ export async function importTransactionsFromCSV(
           }
         }
 
-        // ISO format
         if (!parsed || isNaN(parsed.getTime())) {
           const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?/)
           if (isoMatch) {
@@ -378,14 +428,8 @@ export async function importTransactionsFromCSV(
           }
         }
 
-        // Fallback
-        if (!parsed || isNaN(parsed.getTime())) {
-          parsed = new Date(dateStr)
-        }
-
-        if (parsed && !isNaN(parsed.getTime())) {
-          date = parsed
-        }
+        if (!parsed || isNaN(parsed.getTime())) parsed = new Date(dateStr)
+        if (parsed && !isNaN(parsed.getTime())) date = parsed
       }
 
       // Transaction type
@@ -414,90 +458,160 @@ export async function importTransactionsFromCSV(
         toAccountId = accountCache.get(row.category)
       } else if (!isTransfer && row.category && hasLetters(row.category)) {
         const catType = transactionType === 'INCOME' ? 'INCOME' : 'EXPENSE'
-
-        // Use async getOrCreateCategory with proper awaiting
         if (row.subcategory && hasLetters(row.subcategory)) {
-          // Has sub-category: create both parent and child
           const result = await getOrCreateSubCategory(db, row.subcategory, row.category, catType)
           categoryId = result.categoryId
           subCategoryId = result.subCategoryId
         } else {
-          // No sub-category
           categoryId = await getOrCreateCategory(db, row.category, catType)
         }
       }
 
       const roundedAmount = Math.round(amount * 100) / 100
 
-      transactionsToAdd.push({
-        date: date.toISOString(),
-        amount: roundedAmount,
-        fromAccountId,
-        categoryId: isTransfer ? undefined : categoryId,
-        subCategoryId: isTransfer ? undefined : subCategoryId,
-        toAccountId: isTransfer ? toAccountId : undefined,
-        description: row.note || undefined,
-        notes: row.description || undefined,
-        transactionType,
-        status: 'CONFIRMED',
-        source: 'CSV_IMPORT',
-        currency: 'INR',
-        // Store original CSV values as fallback for category resolution
-        csvCategory: row.category || undefined,
-        csvSubcategory: row.subcategory || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
+      // Compute sourceHash — uses parsed ISO date for cross-import consistency
+      const sourceHash = await computeSourceHash(
+        date.toISOString(),
+        roundedAmount,
+        row.account,
+        transactionType
+      )
 
-      // Track balance changes
-      if (transactionType === 'EXPENSE') {
-        accountBalanceDeltas.set(fromAccountId, (accountBalanceDeltas.get(fromAccountId) || 0) - roundedAmount)
-      } else if (transactionType === 'INCOME') {
-        accountBalanceDeltas.set(fromAccountId, (accountBalanceDeltas.get(fromAccountId) || 0) + roundedAmount)
-      } else if (isTransfer && toAccountId) {
-        accountBalanceDeltas.set(fromAccountId, (accountBalanceDeltas.get(fromAccountId) || 0) - roundedAmount)
-        accountBalanceDeltas.set(toAccountId, (accountBalanceDeltas.get(toAccountId) || 0) + roundedAmount)
+      // Zone classification
+      let zone: Zone
+      if (isEmptyDB) {
+        zone = 'BEFORE' // treat all as blind when DB is empty
+      } else if (date < dbEarliest!) {
+        zone = 'BEFORE'
+      } else if (date > dbLatest!) {
+        zone = 'AFTER'
+      } else {
+        zone = 'OVERLAP'
       }
+
+      // Per-row balance changes (applied only for the rows we actually insert)
+      const balanceChanges: Array<{ accountId: number; delta: number }> = []
+      if (transactionType === 'EXPENSE') {
+        balanceChanges.push({ accountId: fromAccountId, delta: -roundedAmount })
+      } else if (transactionType === 'INCOME') {
+        balanceChanges.push({ accountId: fromAccountId, delta: +roundedAmount })
+      } else if (isTransfer && toAccountId) {
+        balanceChanges.push({ accountId: fromAccountId, delta: -roundedAmount })
+        balanceChanges.push({ accountId: toAccountId, delta: +roundedAmount })
+      }
+
+      builtEntries.push({
+        txnObj: {
+          date: date.toISOString(),
+          amount: roundedAmount,
+          fromAccountId,
+          categoryId: isTransfer ? undefined : categoryId,
+          subCategoryId: isTransfer ? undefined : subCategoryId,
+          toAccountId: isTransfer ? toAccountId : undefined,
+          description: row.note || undefined,
+          notes: row.description || undefined,
+          transactionType,
+          status: 'CONFIRMED',
+          source: 'CSV_IMPORT',
+          currency: 'INR',
+          csvCategory: row.category || undefined,
+          csvSubcategory: row.subcategory || undefined,
+          sourceHash,
+          createdAt: new Date().toISOString(),
+          updatedAt: Date.now(),
+        },
+        sourceHash,
+        zone,
+        balanceChanges,
+        display: {
+          date: date.toISOString(),
+          amount: roundedAmount,
+          account: row.account,
+          type: transactionType,
+          category: row.category || '',
+        },
+      })
 
     } catch (error) {
       errors.push(`Row ${rowIndex + 2}: ${error}`)
     }
 
-    // Progress update (15-85% range)
     if (rowIndex % 100 === 0) {
       currentStep = Math.ceil(rows.length * 0.15) + Math.ceil((rowIndex / rows.length) * rows.length * 0.70)
       reportProgress()
     }
   }
 
-  // Phase 6: Batch insert all transactions (85-95% progress)
+  // Phase 5.5: Dedup classification for OVERLAP zone
+  const blindEntries = isEmptyDB
+    ? builtEntries
+    : builtEntries.filter(e => e.zone !== 'OVERLAP')
+  const overlapEntries = isEmptyDB ? [] : builtEntries.filter(e => e.zone === 'OVERLAP')
+
+  let skipped = 0
+  const missedEntries: BuiltEntry[] = []
+
+  if (overlapEntries.length > 0) {
+    // Single batch DB call — O(n) not O(n²)
+    const existingHashes = await getExistingHashesInRange(db, dbEarliest!, dbLatest!)
+    for (const entry of overlapEntries) {
+      if (existingHashes.has(entry.sourceHash)) {
+        skipped++
+      } else {
+        missedEntries.push(entry)
+      }
+    }
+  }
+
   currentStep = Math.ceil(rows.length * 0.85)
   reportProgress()
 
-  if (transactionsToAdd.length > 0) {
-    await db.transactions.bulkAdd(transactionsToAdd)
+  // Phase 6: Insert blind entries (BEFORE + AFTER zones)
+  if (blindEntries.length > 0) {
+    await db.transactions.bulkAdd(blindEntries.map(e => e.txnObj) as any[])
   }
 
   currentStep = Math.ceil(rows.length * 0.95)
   reportProgress()
 
-  // Phase 7: Update account balances (95-100% progress)
-  const balanceEntries = Array.from(accountBalanceDeltas.entries())
-  for (let i = 0; i < balanceEntries.length; i++) {
-    const [accountId, delta] = balanceEntries[i]
+  // Phase 7: Apply balance deltas for blind entries only
+  const blindDeltas = new Map<number, number>()
+  for (const entry of blindEntries) {
+    for (const ch of entry.balanceChanges) {
+      blindDeltas.set(ch.accountId, (blindDeltas.get(ch.accountId) || 0) + ch.delta)
+    }
+  }
+  for (const [accountId, delta] of blindDeltas.entries()) {
     const account = await db.accounts.get(accountId)
     if (account) {
-      const newBalance = Math.round((account.balance + delta) * 100) / 100
-      await db.accounts.update(accountId, { balance: newBalance })
+      await db.accounts.update(accountId, {
+        balance: Math.round((account.balance + delta) * 100) / 100,
+      })
     }
-    currentStep = Math.ceil(rows.length * 0.95) + Math.ceil((i / Math.max(balanceEntries.length, 1)) * rows.length * 0.05)
-    reportProgress()
   }
 
   currentStep = rows.length
   reportProgress()
 
-  if (transactionsToAdd.length > 0) debouncedSync()
+  // Return PREVIEW_REQUIRED if there are overlap rows not in DB (missed transactions)
+  if (missedEntries.length > 0) {
+    return {
+      status: 'PREVIEW_REQUIRED',
+      blindInserted: blindEntries.length,
+      skipped,
+      errors,
+      missed: missedEntries.map(e => ({
+        txnObj: e.txnObj,
+        balanceChanges: e.balanceChanges,
+        display: e.display,
+      })),
+    }
+  }
 
-  return { imported: transactionsToAdd.length, errors }
+  return {
+    status: 'COMPLETE',
+    imported: blindEntries.length,
+    skipped,
+    errors,
+  }
 }

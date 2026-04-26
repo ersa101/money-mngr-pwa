@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   ComposedChart,
@@ -13,251 +14,271 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { db } from '@/lib/db'
-import { Play, RefreshCw } from 'lucide-react'
+import { Play, RefreshCw, TrendingUp } from 'lucide-react'
 
-interface DataPoint {
+interface CurvePoint {
   month: string
   income: number
   expense: number
-  gap: number
-  gapGreen: number
-  gapRed: number
+  gap: number        // income - expense (positive = healthy)
+  gapPos: number     // max(gap, 0) for green area
+  gapNeg: number     // min(gap, 0) for red area (stored as negative)
 }
 
-const CACHE_KEY = 'lifestyle_inflation'
-const CACHE_VERSION = 1
-const CACHE_TTL_DAYS = 7
+interface CachedResult {
+  data: CurvePoint[]
+  incomeGrowthRate: number
+  expenseGrowthRate: number
+}
 
-function rolling3(values: number[]): number[] {
+function formatINR(value: number) {
+  return `₹${(value / 1000).toFixed(0)}k`
+}
+
+function rollingAverage(values: number[], window = 3): number[] {
   return values.map((_, i) => {
-    const slice = values.slice(Math.max(0, i - 2), i + 1)
-    return slice.reduce((s, v) => s + v, 0) / slice.length
+    const start = Math.max(0, i - window + 1)
+    const slice = values.slice(start, i + 1)
+    return slice.reduce((a, b) => a + b, 0) / slice.length
   })
-}
-
-function formatINR(v: number) {
-  if (v >= 100000) return `₹${(v / 100000).toFixed(1)}L`
-  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`
-  return `₹${v.toFixed(0)}`
 }
 
 function annualGrowthRate(values: number[]): number {
-  const valid = values.filter((v) => v > 0)
-  if (valid.length < 2) return 0
-  const first = valid[0]
-  const last = valid[valid.length - 1]
-  const years = valid.length / 12
-  return years > 0 ? (Math.pow(last / first, 1 / years) - 1) * 100 : 0
+  if (values.length < 2) return 0
+  const n = values.length
+  const mean = values.reduce((a, b) => a + b, 0) / n
+  if (mean === 0) return 0
+  let sumXY = 0, sumX2 = 0
+  const meanX = (n - 1) / 2
+  for (let i = 0; i < n; i++) {
+    sumXY += i * values[i]
+    sumX2 += i * i
+  }
+  const slope = (sumXY - n * meanX * mean) / (sumX2 - n * meanX * meanX)
+  return ((slope * 12) / mean) * 100
 }
 
 export function LifestyleInflationCurve() {
+  const db = useDb()
   const [computing, setComputing] = useState(false)
-  const [chartData, setChartData] = useState<DataPoint[] | null>(null)
+  const [result, setResult] = useState<CachedResult | null>(null)
   const [computedAt, setComputedAt] = useState<string | null>(null)
-  const [incomeGrowth, setIncomeGrowth] = useState(0)
-  const [expenseGrowth, setExpenseGrowth] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
-  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
+  // Check for cached result on mount
+  const cached = useLiveQuery(async () => {
+    const row = await db.table('computedInsights').where('key').equals('lifestyle_inflation').first()
+    return row ?? null
+  }, [])
 
-  const cachedInsight = useLiveQuery(
-    () => db.computedInsights.get(CACHE_KEY),
-    [],
-    undefined
-  )
+  const isCacheValid = useCallback(() => {
+    if (!cached) return false
+    const age = Date.now() - new Date(cached.computedAt).getTime()
+    return age < 7 * 24 * 60 * 60 * 1000 && cached.version === 1
+  }, [cached])
 
-  // Auto-load from cache on mount
-  useState(() => {
-    if (cachedInsight) {
-      const ageDays = (Date.now() - new Date(cachedInsight.computedAt).getTime()) / 86400000
-      if (ageDays < CACHE_TTL_DAYS && cachedInsight.version === CACHE_VERSION) {
-        const parsed = JSON.parse(cachedInsight.value)
-        setChartData(parsed.chartData)
-        setIncomeGrowth(parsed.incomeGrowth)
-        setExpenseGrowth(parsed.expenseGrowth)
-        setComputedAt(cachedInsight.computedAt)
-      }
+  const loadFromCache = useCallback(() => {
+    if (cached) {
+      setResult(JSON.parse(cached.value))
+      setComputedAt(cached.computedAt)
     }
-  })
+  }, [cached])
 
   const compute = useCallback(async () => {
-    if (!transactions) return
     setComputing(true)
+    setError(null)
+    try {
+      const transactions = await db.transactions.toArray()
+      const monthMap = new Map<string, { income: number; expense: number }>()
 
-    const monthlyIncome = new Map<string, number>()
-    const monthlyExpense = new Map<string, number>()
-
-    for (const t of transactions) {
-      const month = t.date.slice(0, 7)
-      if (t.transactionType === 'INCOME') {
-        monthlyIncome.set(month, (monthlyIncome.get(month) ?? 0) + t.amount)
-      } else if (t.transactionType === 'EXPENSE') {
-        monthlyExpense.set(month, (monthlyExpense.get(month) ?? 0) + t.amount)
+      for (const t of transactions.filter(Boolean)) {
+        if (t.transactionType === 'TRANSFER') continue
+        const month = t.date.slice(0, 7)
+        if (!monthMap.has(month)) monthMap.set(month, { income: 0, expense: 0 })
+        const entry = monthMap.get(month)!
+        if (t.transactionType === 'INCOME') entry.income += t.amount
+        else entry.expense += t.amount
       }
+
+      const months = Array.from(monthMap.keys()).sort()
+      const rawIncome = months.map((m) => monthMap.get(m)!.income)
+      const rawExpense = months.map((m) => monthMap.get(m)!.expense)
+
+      const smoothedIncome = rollingAverage(rawIncome, 3)
+      const smoothedExpense = rollingAverage(rawExpense, 3)
+
+      const data: CurvePoint[] = months.map((month, i) => {
+        const gap = smoothedIncome[i] - smoothedExpense[i]
+        return {
+          month,
+          income: Math.round(smoothedIncome[i]),
+          expense: Math.round(smoothedExpense[i]),
+          gap: Math.round(gap),
+          gapPos: Math.round(Math.max(gap, 0)),
+          gapNeg: Math.round(Math.min(gap, 0)),
+        }
+      })
+
+      const computed: CachedResult = {
+        data,
+        incomeGrowthRate: annualGrowthRate(rawIncome),
+        expenseGrowthRate: annualGrowthRate(rawExpense),
+      }
+
+      const now = new Date().toISOString()
+      await db.table('computedInsights').put({
+        key: 'lifestyle_inflation',
+        value: JSON.stringify(computed),
+        computedAt: now,
+        version: 1,
+      })
+
+      setResult(computed)
+      setComputedAt(now)
+    } catch (e) {
+      setError('Computation failed. Please try again.')
+    } finally {
+      setComputing(false)
     }
-
-    const months = Array.from(
-      new Set([...monthlyIncome.keys(), ...monthlyExpense.keys()])
-    ).sort()
-
-    const rawIncome = months.map((m) => monthlyIncome.get(m) ?? 0)
-    const rawExpense = months.map((m) => monthlyExpense.get(m) ?? 0)
-    const smoothIncome = rolling3(rawIncome)
-    const smoothExpense = rolling3(rawExpense)
-
-    const ig = annualGrowthRate(smoothIncome)
-    const eg = annualGrowthRate(smoothExpense)
-
-    const data: DataPoint[] = months.map((m, i) => {
-      const inc = smoothIncome[i]
-      const exp = smoothExpense[i]
-      const gap = inc - exp
-      return {
-        month: m,
-        income: Math.round(inc),
-        expense: Math.round(exp),
-        gap,
-        gapGreen: gap >= 0 ? Math.round(gap) : 0,
-        gapRed: gap < 0 ? Math.round(Math.abs(gap)) : 0,
-      }
-    })
-
-    const payload = { chartData: data, incomeGrowth: ig, expenseGrowth: eg }
-    const now = new Date().toISOString()
-
-    await db.computedInsights.put({
-      key: CACHE_KEY,
-      value: JSON.stringify(payload),
-      computedAt: now,
-      version: CACHE_VERSION,
-    })
-
-    setChartData(data)
-    setIncomeGrowth(ig)
-    setExpenseGrowth(eg)
-    setComputedAt(now)
-    setComputing(false)
-  }, [transactions])
+  }, [db])
 
   const daysAgo = computedAt
     ? Math.floor((Date.now() - new Date(computedAt).getTime()) / 86400000)
     : null
 
+  const hasResult = result !== null
+
+  // Load cache once when cached data arrives — must be in useEffect, never in render body
+  // (calling setState during render causes an infinite loop)
+  useEffect(() => {
+    if (cached && isCacheValid() && !result && !computing) {
+      loadFromCache()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cached])
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div className="bg-white border border-gray-200 rounded p-3 text-xs shadow-lg">
+        <p className="text-gray-700 mb-1 font-medium">{label}</p>
+        {payload.map((p: any) => (
+          p.name !== 'Gap+' && p.name !== 'Gap−' && (
+            <p key={p.name} style={{ color: p.color }}>
+              {p.name}: ₹{p.value?.toLocaleString('en-IN')}
+            </p>
+          )
+        ))}
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-start justify-between mb-1">
-        <div>
-          <h3 className="text-base font-semibold text-white">Lifestyle Inflation Curve</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Based on all available data</p>
-        </div>
         <div className="flex items-center gap-2">
-          {daysAgo !== null && (
-            <span className="text-xs text-slate-500">
-              Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
-            </span>
-          )}
+          <TrendingUp className="w-5 h-5 text-emerald-600" />
+          <h3 className="text-base font-semibold text-gray-900">Lifestyle Inflation Curve</h3>
+        </div>
+        <span className="text-xs text-gray-400">Based on all available data</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">3-month smoothed income vs expense growth over your full history</p>
+
+      {!hasResult && (
+        <div className="flex flex-col items-center justify-center py-12 gap-3">
           <button
             onClick={compute}
             disabled={computing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-lg text-sm font-medium text-white transition"
           >
-            {computing ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : chartData ? (
-              <RefreshCw className="w-3.5 h-3.5" />
-            ) : (
-              <Play className="w-3.5 h-3.5" />
-            )}
-            {computing ? 'Computing…' : chartData ? 'Recompute' : 'Compute'}
+            {computing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {computing ? 'Computing…' : '▶ Compute'}
           </button>
-        </div>
-      </div>
-
-      {!chartData && !computing && (
-        <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
-          Press Compute to analyse your full transaction history
+          {error && <p className="text-red-600 text-xs">{error}</p>}
         </div>
       )}
 
-      {computing && (
-        <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
-          Analysing transactions…
-        </div>
-      )}
-
-      {chartData && !computing && (
+      {hasResult && result && (
         <>
-          <div className="flex gap-6 mb-4 mt-3">
-            <div className="text-sm">
-              <span className="text-slate-400">Income growth: </span>
-              <span className="text-emerald-400 font-semibold">{incomeGrowth.toFixed(1)}%/yr</span>
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Income growth</p>
+              <p className={`text-lg font-bold ${result.incomeGrowthRate >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {result.incomeGrowthRate >= 0 ? '+' : ''}{result.incomeGrowthRate.toFixed(1)}%/yr
+              </p>
             </div>
-            <div className="text-sm">
-              <span className="text-slate-400">Expense growth: </span>
-              <span className={`font-semibold ${expenseGrowth > incomeGrowth ? 'text-red-400' : 'text-emerald-400'}`}>
-                {expenseGrowth.toFixed(1)}%/yr
-              </span>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Expense growth</p>
+              <p className={`text-lg font-bold ${result.expenseGrowthRate <= result.incomeGrowthRate ? 'text-emerald-600' : 'text-red-600'}`}>
+                {result.expenseGrowthRate >= 0 ? '+' : ''}{result.expenseGrowthRate.toFixed(1)}%/yr
+              </p>
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
-                tickFormatter={(v) => v.slice(2)}
-                interval={Math.floor(chartData.length / 8)}
-              />
-              <YAxis
-                tick={{ fontSize: 10, fill: '#94a3b8' }}
-                tickFormatter={formatINR}
-                width={55}
-              />
-              <Tooltip
-                contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-                labelStyle={{ color: '#94a3b8', fontSize: 11 }}
-                formatter={(v: number, name: string) => [formatINR(v), name]}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 11, color: '#94a3b8' }}
-              />
-              {/* Green gap: income > expense */}
-              <Area
-                type="monotone"
-                dataKey="gapGreen"
-                fill="#10b98120"
-                stroke="none"
-                name="Healthy gap"
-                stackId="gap"
-              />
-              {/* Red gap: expense > income */}
-              <Area
-                type="monotone"
-                dataKey="gapRed"
-                fill="#ef444420"
-                stroke="none"
-                name="Lifestyle inflation"
-                stackId="gap2"
-              />
-              <Line
-                type="monotone"
-                dataKey="income"
-                stroke="#10b981"
-                dot={false}
-                strokeWidth={2}
-                name="Income (3mo avg)"
-              />
-              <Line
-                type="monotone"
-                dataKey="expense"
-                stroke="#f87171"
-                dot={false}
-                strokeWidth={2}
-                name="Expense (3mo avg)"
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {/* Insight label */}
+          {result.expenseGrowthRate > result.incomeGrowthRate ? (
+            <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
+              ⚠ Lifestyle inflation — expenses growing faster than income
+            </div>
+          ) : (
+            <div className="mb-4 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+              ✓ Healthy gap — income outpacing expenses
+            </div>
+          )}
+
+          <div className="w-full overflow-x-auto">
+            <div style={{ minWidth: Math.max(500, result.data.length * 12) }}>
+              <ResponsiveContainer width="100%" height={280}>
+                <ComposedChart data={result.data} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: '#6b7280', fontSize: 10 }}
+                    tickFormatter={(v) => v.slice(2)}
+                    interval={Math.floor(result.data.length / 8)}
+                  />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={formatINR} width={48} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#6b7280' }} />
+                  {/* Green gap (income > expense) */}
+                  <Area
+                    dataKey="gapPos"
+                    name="Gap+"
+                    fill="#10b981"
+                    fillOpacity={0.15}
+                    stroke="none"
+                    legendType="none"
+                  />
+                  {/* Red gap (expense > income) — shown as negative, trick: use expense as base */}
+                  <Area
+                    dataKey="gapNeg"
+                    name="Gap−"
+                    fill="#ef4444"
+                    fillOpacity={0.15}
+                    stroke="none"
+                    legendType="none"
+                  />
+                  <Line dataKey="income" name="Income" stroke="#10b981" dot={false} strokeWidth={2} />
+                  <Line dataKey="expense" name="Expense" stroke="#ef4444" dot={false} strokeWidth={2} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="mt-3 flex items-center gap-3">
+            <p className="text-xs text-gray-500">
+              Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
+            </p>
+            <button
+              onClick={compute}
+              disabled={computing}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 transition"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Recompute
+            </button>
+          </div>
         </>
       )}
     </div>

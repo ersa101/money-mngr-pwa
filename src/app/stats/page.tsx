@@ -2,18 +2,20 @@
 
 import { useDateFilter } from '@/hooks/useDateFilter'
 import { CategoryComposition } from '@/components/stats/CategoryComposition'
+import { CategoryTrend } from '@/components/stats/CategoryTrend'
 import { SubCategoryTrend } from '@/components/stats/SubCategoryTrend'
 import { IncomeVsExpense } from '@/components/stats/IncomeVsExpense'
 import { AccountBalanceHistory } from '@/components/stats/AccountBalanceHistory'
 import { NetWorth } from '@/components/stats/NetWorth'
+import { BarChart3, Calendar } from 'lucide-react'
+import { useState } from 'react'
+// Phase 2 — Deep Insight Visuals
 import { LifestyleInflationCurve } from '@/components/stats/LifestyleInflationCurve'
 import { SeasonalHeatmap } from '@/components/stats/SeasonalHeatmap'
 import { CorrelationWeb } from '@/components/stats/CorrelationWeb'
 import { FinancialIdentityCard } from '@/components/stats/FinancialIdentityCard'
 import { FinancialAgeScore } from '@/components/stats/FinancialAgeScore'
 import { UncomfortableTruth } from '@/components/stats/UncomfortableTruth'
-import { BarChart3, Calendar } from 'lucide-react'
-import { useState } from 'react'
 
 export default function StatsPage() {
   const {
@@ -26,39 +28,40 @@ export default function StatsPage() {
   } = useDateFilter()
 
   const [showCustomRange, setShowCustomRange] = useState(false)
+  const [categoryClick, setCategoryClick] = useState<{ name: string; type: 'EXPENSE' | 'INCOME'; _t: number } | null>(null)
 
   return (
-    <div className="min-h-screen bg-background pb-24">
-      {/* Header */}
-      <div className="border-b border-border bg-card/50">
+    <div className="min-h-screen bg-gray-50 pb-24">
+      {/* Header — sticky so period selector stays visible while scrolling */}
+      <div className="sticky top-14 md:top-16 z-20 border-b border-gray-200 bg-white/95 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary/10 rounded-lg text-primary">
+              <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
                 <BarChart3 className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Stats & Insights</h1>
-                <p className="text-sm text-muted-foreground">
-                  Comprehensive financial analytics and trends
+                <h1 className="text-2xl font-bold text-gray-900">RADAR</h1>
+                <p className="text-sm text-gray-500">
+                  Review & Detection of Activity Reports
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Period Filter */}
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm text-muted-foreground">Period:</span>
+          {/* Period Filter — scrollable on mobile, wrapping on desktop */}
+          <div className="flex gap-2 items-center overflow-x-auto scrollbar-hide md:flex-wrap">
+            <span className="text-sm text-gray-500">Period:</span>
 
             <button
               onClick={() => {
                 setPeriod('monthly')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'monthly'
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border hover:border-primary/50 text-foreground'
+                  : 'border-gray-300 hover:border-gray-400 text-gray-700'
               }`}
             >
               Monthly
@@ -69,10 +72,10 @@ export default function StatsPage() {
                 setPeriod('quarterly')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'quarterly'
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border hover:border-primary/50 text-foreground'
+                  : 'border-gray-300 hover:border-gray-400 text-gray-700'
               }`}
             >
               Quarterly
@@ -83,10 +86,10 @@ export default function StatsPage() {
                 setPeriod('semi-annual')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'semi-annual'
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border hover:border-primary/50 text-foreground'
+                  : 'border-gray-300 hover:border-gray-400 text-gray-700'
               }`}
             >
               Semi-Annual
@@ -97,10 +100,10 @@ export default function StatsPage() {
                 setPeriod('annual')
                 setShowCustomRange(false)
               }}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition border ${
+              className={`flex-shrink-0 px-3 py-1.5 rounded text-sm font-medium transition border ${
                 period === 'annual'
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border hover:border-primary/50 text-foreground'
+                  : 'border-gray-300 hover:border-gray-400 text-gray-700'
               }`}
             >
               Annual
@@ -114,7 +117,7 @@ export default function StatsPage() {
               className={`px-3 py-1.5 rounded text-sm font-medium transition border flex items-center gap-1 ${
                 period === 'custom'
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border hover:border-primary/50 text-foreground'
+                  : 'border-gray-300 hover:border-gray-400 text-gray-700'
               }`}
             >
               <Calendar className="w-4 h-4" />
@@ -175,40 +178,51 @@ export default function StatsPage() {
         {/* Income vs Expense - Full Width */}
         <IncomeVsExpense dateRange={dateRange} />
 
-        {/* Category Composition & Sub-Category Trend - Side by Side */}
+        {/* Category Composition - Expense & Income Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <CategoryComposition dateRange={dateRange} />
-          <SubCategoryTrend dateRange={dateRange} />
+          <CategoryComposition
+            dateRange={dateRange}
+            type="EXPENSE"
+            onCategoryClick={(name) => setCategoryClick({ name, type: 'EXPENSE', _t: Date.now() })}
+          />
+          <CategoryComposition
+            dateRange={dateRange}
+            type="INCOME"
+            onCategoryClick={(name) => setCategoryClick({ name, type: 'INCOME', _t: Date.now() })}
+          />
         </div>
+
+        {/* Category Trend - Full Width */}
+        <CategoryTrend dateRange={dateRange} categoryClick={categoryClick} />
+
+        {/* Sub-Category Trend - Full Width */}
+        <SubCategoryTrend dateRange={dateRange} />
 
         {/* Account Balance History - Full Width */}
         <AccountBalanceHistory dateRange={dateRange} />
 
         {/* ── Phase 2: Deep Insight Visuals ── */}
-        <div className="pt-4 border-t border-border">
-          <p className="text-xs text-muted-foreground uppercase tracking-widest mb-6">
-            Deep Insights · Based on all available data
-          </p>
-          <div className="space-y-8">
-            {/* Feature 15 */}
-            <LifestyleInflationCurve />
-
-            {/* Feature 16 */}
-            <SeasonalHeatmap />
-
-            {/* Feature 17 */}
-            <CorrelationWeb />
-
-            {/* Feature 18 + 19 — side by side on desktop */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <FinancialIdentityCard />
-              <FinancialAgeScore />
-            </div>
-
-            {/* Feature 20 */}
-            <UncomfortableTruth />
-          </div>
+        <div className="border-t border-gray-200 pt-8">
+          <p className="text-xs text-gray-400 mb-6 uppercase tracking-widest">Deep Insights</p>
         </div>
+
+        {/* Feature 15 — Lifestyle Inflation Curve */}
+        <LifestyleInflationCurve />
+
+        {/* Feature 16 — Seasonal Heatmap */}
+        <SeasonalHeatmap />
+
+        {/* Feature 17 — Correlation Web / Spending DNA */}
+        <CorrelationWeb />
+
+        {/* Feature 18 — Financial Identity Card */}
+        <FinancialIdentityCard />
+
+        {/* Feature 19 — Financial Age Score */}
+        <FinancialAgeScore />
+
+        {/* Feature 20 — The Uncomfortable Truth */}
+        <UncomfortableTruth />
       </div>
     </div>
   )

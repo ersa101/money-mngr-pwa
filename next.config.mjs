@@ -9,7 +9,7 @@ const withPWA = withPWAInit({
   reloadOnOnline: true,
   buildExcludes: [/middleware-manifest\.json$/],
   // Cache versioning - INCREMENT THIS ON EACH DEPLOY
-  cacheId: 'money-mngr-v5',
+  cacheId: 'money-mngr-v9',
 })
 
 /** @type {import('next').NextConfig} */

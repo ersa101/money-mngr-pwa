@@ -1,289 +1,623 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/lib/db'
-import { computeCorrelations, type CorrelationNode, type CorrelationEdge } from '@/lib/correlationUtils'
-import { Play, RefreshCw } from 'lucide-react'
+import {
+  buildSubCategoryMonthlySeries,
+  computeMatrixWithAlgo,
+  computeCorrelationsWithAlgo,
+  selectAlgo,
+  type CorrelationAlgo,
+} from '@/lib/correlationUtils'
+import type { CorrelationEdge } from '@/lib/correlationUtils'
+import { Network } from 'lucide-react'
 
-const CACHE_KEY = 'correlation_web'
-const CACHE_VERSION = 1
-const CACHE_TTL_DAYS = 7
-const MIN_MONTHS = 6
+type ViewMode = 'matrix' | 'chord' | 'bubble'
 
-interface NodePos {
-  id: string
-  x: number
-  y: number
-  totalSpend: number
-  r: number // visual radius
+interface LeaderboardEntry {
+  name: string
+  total: number
 }
 
-function formatINR(v: number) {
-  if (v >= 100000) return `₹${(v / 100000).toFixed(1)}L`
-  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`
-  return `₹${v.toFixed(0)}`
+interface MatrixResult {
+  // Display mode: 'correlation' renders 3 view types; 'leaderboard' shows top-spend list (n<3 — D042 + new-user retention)
+  displayMode: 'correlation' | 'leaderboard'
+  algo: CorrelationAlgo
+  monthsCount: number
+  // Correlation mode
+  names: string[]
+  totals: number[]
+  avgMonthlys: number[]
+  matrix: number[][]
+  edges: CorrelationEdge[]
+  hasEnoughData: boolean
+  isFallback: boolean
+  // Leaderboard mode (n<3)
+  leaderboard: LeaderboardEntry[]
 }
 
-const W = 480
-const H = 380
-const CX = W / 2
-const CY = H / 2
+const SVG_W = 500
+const SVG_H = 420
+const CX = SVG_W / 2
+const CY = SVG_H / 2
+const RADIUS = 170
 
-function layoutNodes(nodes: CorrelationNode[]): NodePos[] {
-  if (nodes.length === 0) return []
-  const maxSpend = Math.max(...nodes.map((n) => n.totalSpend))
-  return nodes.map((n, i) => {
-    const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2
-    const distance = 140
-    const radius = 10 + (n.totalSpend / maxSpend) * 22
-    return {
-      id: n.id,
-      x: CX + Math.cos(angle) * distance,
-      y: CY + Math.sin(angle) * distance,
-      totalSpend: n.totalSpend,
-      r: radius,
-    }
-  })
+function circlePositions(n: number): { x: number; y: number }[] {
+  return Array.from({ length: n }, (_, i) => ({
+    x: CX + RADIUS * Math.cos((2 * Math.PI * i) / n - Math.PI / 2),
+    y: CY + RADIUS * Math.sin((2 * Math.PI * i) / n - Math.PI / 2),
+  }))
+}
+
+function rToColor(r: number): string {
+  if (r >= 0) {
+    const g = Math.round(60 + 135 * r)
+    return `rgb(34,${g},94)`
+  } else {
+    const intensity = Math.round(180 * Math.abs(r))
+    return `rgb(${180 + intensity},40,40)`
+  }
+}
+
+function rToOpacity(r: number): number {
+  return 0.08 + 0.92 * Math.abs(r)
 }
 
 export function CorrelationWeb() {
+  const db = useDb()
   const [computing, setComputing] = useState(false)
-  const [nodes, setNodes] = useState<CorrelationNode[] | null>(null)
-  const [edges, setEdges] = useState<CorrelationEdge[] | null>(null)
+  const [result, setResult] = useState<MatrixResult | null>(null)
   const [computedAt, setComputedAt] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<ViewMode>('matrix')
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [insufficientData, setInsufficientData] = useState(false)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string[] } | null>(null)
 
-  const transactions = useLiveQuery(() => db.transactions.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const txCount = useLiveQuery(() => db?.transactions.count() ?? 0, [db])
+  const lastTxCountRef = useRef<number>(-1)
 
-  useLiveQuery(async () => {
-    const cached = await db.computedInsights.get(CACHE_KEY)
-    if (!cached) return
-    const ageDays = (Date.now() - new Date(cached.computedAt).getTime()) / 86400000
-    if (ageDays < CACHE_TTL_DAYS && cached.version === CACHE_VERSION) {
-      const { nodes: n, edges: e } = JSON.parse(cached.value)
-      setNodes(n)
-      setEdges(e)
+  const cached = useLiveQuery(async () => {
+    return db?.table('computedInsights').where('key').equals('correlation_web').first()
+  }, [db])
+
+  const isCacheValid = useCallback(() => {
+    if (!cached) return false
+    return (
+      Date.now() - new Date(cached.computedAt).getTime() < 7 * 24 * 60 * 60 * 1000 &&
+      cached.version === 4
+    )
+  }, [cached])
+
+  const loadFromCache = useCallback(() => {
+    if (cached) {
+      setResult(JSON.parse(cached.value))
       setComputedAt(cached.computedAt)
     }
-  }, [])
+  }, [cached])
 
   const compute = useCallback(async () => {
-    if (!transactions || !categories) return
+    if (!db) return
     setComputing(true)
-    setInsufficientData(false)
+    setError(null)
+    try {
+      const transactions = await db.transactions.toArray()
+      const accounts = await db.accounts.toArray()
+      const categoriesRaw = await db.categories.toArray()
 
-    const catMap = new Map(categories.map((c) => [c.id!, c.name]))
+      // V2.7.4 D045 — exclude top-level categories matching account names (TRANSFER pollution)
+      const accountNamesLower = new Set(accounts.filter(Boolean).map((a) => a.name.toLowerCase()))
+      const categories = categoriesRaw.filter(Boolean).filter((c) => {
+        if (c.parentId) return true
+        return !accountNamesLower.has(c.name.toLowerCase())
+      })
+      const subCatMap = new Map(categories.map((c) => [c.id!, c.name]))
 
-    // Build subcategory monthly spend (use categoryId, or subCategoryId if present)
-    const monthlyData = new Map<string, Map<string, number>>()
-    const months = new Set<string>()
+      const months = new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))
+      const monthsCount = months.size
+      const algo = selectAlgo(monthsCount)
+      const now = new Date().toISOString()
 
-    for (const t of transactions) {
-      if (t.transactionType !== 'EXPENSE') continue
-      const catId = t.subCategoryId ?? t.categoryId
-      if (!catId) continue
-      const catName = catMap.get(catId) ?? `Cat ${catId}`
-      const month = t.date.slice(0, 7)
-      months.add(month)
-      if (!monthlyData.has(catName)) monthlyData.set(catName, new Map())
-      const mm = monthlyData.get(catName)!
-      mm.set(month, (mm.get(month) ?? 0) + t.amount)
-    }
+      // n<3 -> leaderboard mode (D042 fallback option A+D)
+      if (algo === 'none') {
+        const expenseTxns = transactions
+          .filter(Boolean)
+          .filter((t) => t.transactionType === 'EXPENSE')
+        // Aggregate by subcategory (or fall back to category if no subcat)
+        const totals = new Map<string, number>()
+        for (const t of expenseTxns) {
+          const name = t.subCategoryId
+            ? subCatMap.get(t.subCategoryId)
+            : t.categoryId
+              ? subCatMap.get(t.categoryId)
+              : undefined
+          if (!name) continue
+          totals.set(name, (totals.get(name) ?? 0) + t.amount)
+        }
+        const leaderboard = Array.from(totals.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([name, total]) => ({ name, total }))
 
-    if (months.size < MIN_MONTHS) {
-      setInsufficientData(true)
+        const webResult: MatrixResult = {
+          displayMode: 'leaderboard',
+          algo: 'none',
+          monthsCount,
+          names: [],
+          totals: [],
+          avgMonthlys: [],
+          matrix: [],
+          edges: [],
+          hasEnoughData: false,
+          isFallback: false,
+          leaderboard,
+        }
+        await db.table('computedInsights').put({
+          key: 'correlation_web',
+          value: JSON.stringify(webResult),
+          computedAt: now,
+          version: 4,
+        })
+        setResult(webResult)
+        setComputedAt(now)
+        return
+      }
+
+      // Try subcategory-level first
+      let raw = transactions
+        .filter(Boolean)
+        .filter((t) => t.transactionType === 'EXPENSE')
+        .map((t) => ({
+          date: t.date,
+          amount: t.amount,
+          transactionType: 'EXPENSE' as const,
+          subCategoryName: t.subCategoryId ? subCatMap.get(t.subCategoryId) : undefined,
+        }))
+        .filter((t) => !!t.subCategoryName)
+
+      // Fall back to category-level when no subcategory data exists
+      const isFallback = raw.length === 0
+      if (isFallback) {
+        raw = transactions
+          .filter(Boolean)
+          .filter((t) => t.transactionType === 'EXPENSE' && t.categoryId)
+          .map((t) => ({
+            date: t.date,
+            amount: t.amount,
+            transactionType: 'EXPENSE' as const,
+            subCategoryName: t.categoryId ? subCatMap.get(t.categoryId) : undefined,
+          }))
+          .filter((t) => !!t.subCategoryName)
+      }
+
+      const series = buildSubCategoryMonthlySeries(raw, 15)
+      const matrix = computeMatrixWithAlgo(series, algo)
+      const edges = computeCorrelationsWithAlgo(series, algo, 0.3)
+
+      const monthCount = months.size || 1
+      const totals = series.map((s) => s.monthly.reduce((a, m) => a + m.amount, 0))
+      const avgMonthlys = totals.map((t) => t / monthCount)
+      const names = series.map((s) => s.subCategoryName)
+
+      const webResult: MatrixResult = {
+        displayMode: 'correlation',
+        algo,
+        monthsCount,
+        names,
+        totals,
+        avgMonthlys,
+        matrix,
+        edges,
+        hasEnoughData: monthsCount >= 6,
+        isFallback,
+        leaderboard: [],
+      }
+
+      await db.table('computedInsights').put({
+        key: 'correlation_web',
+        value: JSON.stringify(webResult),
+        computedAt: now,
+        version: 4,
+      })
+
+      setResult(webResult)
+      setComputedAt(now)
+    } catch {
+      setError('Computation failed. Please try again.')
+    } finally {
       setComputing(false)
-      return
     }
+  }, [db])
 
-    const result = computeCorrelations(monthlyData)
-    const now = new Date().toISOString()
-
-    await db.computedInsights.put({
-      key: CACHE_KEY,
-      value: JSON.stringify(result),
-      computedAt: now,
-      version: CACHE_VERSION,
-    })
-
-    setNodes(result.nodes)
-    setEdges(result.edges)
-    setComputedAt(now)
-    setComputing(false)
-  }, [transactions, categories])
-
-  const nodePositions = useMemo<NodePos[]>(
-    () => (nodes ? layoutNodes(nodes) : []),
-    [nodes]
-  )
-
-  const posMap = useMemo(
-    () => new Map(nodePositions.map((n) => [n.id, n])),
-    [nodePositions]
-  )
-
-  const selectedEdges = useMemo(
-    () =>
-      selectedNode && edges
-        ? new Set(
-            edges
-              .filter((e) => e.source === selectedNode || e.target === selectedNode)
-              .flatMap((e) => [e.source, e.target])
-          )
-        : null,
-    [selectedNode, edges]
-  )
+  // V2.7.4 verification fix — auto-compute on mount and when txCount changes.
+  // Previous version had `if (cached === undefined) return` which blocked both
+  // "loading" AND "no record" cases — when computedInsights was empty (e.g.
+  // post-boot-clear), compute() never auto-fired, leaving the card showing
+  // only the header. Mirror SeasonalHeatmap pattern: gate on txCount, then
+  // load from cache OR compute; isCacheValid handles the no-cache case via
+  // `if (!cached) return false`.
+  useEffect(() => {
+    if (txCount === undefined) return
+    if (txCount === lastTxCountRef.current) return
+    lastTxCountRef.current = txCount
+    if (computing) return
+    if (cached && isCacheValid()) {
+      loadFromCache()
+    } else if (txCount > 0) {
+      compute()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txCount, cached])
 
   const daysAgo = computedAt
     ? Math.floor((Date.now() - new Date(computedAt).getTime()) / 86400000)
     : null
 
-  return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-      <div className="flex items-start justify-between mb-1">
-        <div>
-          <h3 className="text-base font-semibold text-white">Spending DNA — Correlation Web</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Based on all available data · Tap a node to explore</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {daysAgo !== null && (
-            <span className="text-xs text-slate-500">
-              Computed {daysAgo === 0 ? 'today' : `${daysAgo}d ago`}
-            </span>
+  // --- Matrix view ---
+  const matrixView = useMemo(() => {
+    if (!result?.names.length) return null
+    const n = result.names.length
+    const cellSize = Math.min(28, Math.floor(300 / n))
+    const labelW = 90
+    const headerH = 70
+    const svgW = labelW + n * cellSize
+    const svgH = headerH + n * cellSize
+
+    return (
+      <div className="overflow-x-auto">
+        <svg width={svgW} height={svgH} className="block">
+          {/* Column headers (rotated) */}
+          {result.names.map((name, j) => (
+            <text
+              key={`col-${j}`}
+              x={labelW + j * cellSize + cellSize / 2}
+              y={headerH - 4}
+              textAnchor="start"
+              fill="#6b7280"
+              fontSize={9}
+              transform={`rotate(-45, ${labelW + j * cellSize + cellSize / 2}, ${headerH - 4})`}
+            >
+              {name.length > 10 ? name.slice(0, 10) + '…' : name}
+            </text>
+          ))}
+
+          {/* Row labels */}
+          {result.names.map((name, i) => (
+            <text
+              key={`row-${i}`}
+              x={labelW - 4}
+              y={headerH + i * cellSize + cellSize / 2 + 4}
+              textAnchor="end"
+              fill="#6b7280"
+              fontSize={9}
+            >
+              {name.length > 12 ? name.slice(0, 12) + '…' : name}
+            </text>
+          ))}
+
+          {/* Cells */}
+          {result.matrix.map((row, i) =>
+            row.map((r, j) => {
+              if (i === j) {
+                return (
+                  <rect
+                    key={`${i}-${j}`}
+                    x={labelW + j * cellSize}
+                    y={headerH + i * cellSize}
+                    width={cellSize}
+                    height={cellSize}
+                    fill="#e5e7eb"
+                  />
+                )
+              }
+              const color = rToColor(r)
+              const opacity = rToOpacity(r)
+              return (
+                <rect
+                  key={`${i}-${j}`}
+                  x={labelW + j * cellSize}
+                  y={headerH + i * cellSize}
+                  width={cellSize}
+                  height={cellSize}
+                  fill={color}
+                  fillOpacity={opacity}
+                  style={{ cursor: 'pointer' }}
+                  onMouseEnter={(e) => {
+                    const rect = (e.target as SVGElement).getBoundingClientRect()
+                    setTooltip({
+                      x: rect.left + window.scrollX + cellSize,
+                      y: rect.top + window.scrollY,
+                      text: [
+                        `${result.names[i]} × ${result.names[j]}`,
+                        `r = ${r >= 0 ? '+' : ''}${r.toFixed(2)}`,
+                        r > 0.3 ? 'Positive correlation' : r < -0.3 ? 'Negative correlation' : 'Weak / no correlation',
+                      ],
+                    })
+                  }}
+                  onMouseLeave={() => setTooltip(null)}
+                />
+              )
+            })
           )}
-          <button
-            onClick={compute}
-            disabled={computing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-white rounded-lg border border-slate-600 transition disabled:opacity-50"
-          >
-            {computing ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : nodes ? (
-              <RefreshCw className="w-3.5 h-3.5" />
-            ) : (
-              <Play className="w-3.5 h-3.5" />
-            )}
-            {computing ? 'Computing…' : nodes ? 'Recompute' : 'Compute'}
-          </button>
-        </div>
+        </svg>
       </div>
+    )
+  }, [result])
 
-      {!nodes && !computing && !insufficientData && (
-        <div className="flex items-center justify-center h-48 text-slate-500 text-sm">
-          Press Compute to map spending correlations
-        </div>
-      )}
+  // --- Chord view ---
+  const positions = useMemo(() => {
+    if (!result?.names.length) return []
+    return circlePositions(result.names.length)
+  }, [result])
 
-      {insufficientData && (
-        <div className="flex items-center justify-center h-48 text-slate-400 text-sm text-center px-4">
-          Need at least 6 months of data to compute correlations.
-        </div>
-      )}
+  const maxTotal = result?.totals.length ? Math.max(...result.totals, 1) : 1
 
-      {computing && (
-        <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
-          Computing correlations…
-        </div>
-      )}
+  const selectedEdges = useMemo(() => {
+    if (!selectedNode || !result) return new Set<string>()
+    return new Set(
+      result.edges
+        .filter((e) => e.source === selectedNode || e.target === selectedNode)
+        .flatMap((e) => [e.source, e.target])
+    )
+  }, [selectedNode, result])
 
-      {nodes && edges && !computing && (
-        <>
-          {selectedNode && (
-            <div className="mt-2 mb-2 p-3 bg-slate-700/50 rounded-lg border border-slate-600 text-xs text-slate-300">
-              <span className="font-semibold text-white">{selectedNode}</span> moves together with:{' '}
-              {edges
+  const chordView = useMemo(() => {
+    if (!result?.names.length) return null
+    const nodeMap = new Map(
+      result.names.map((name, i) => [name, { name, total: result.totals[i], ...positions[i] }])
+    )
+    return (
+      <div className="overflow-x-auto">
+        <svg width={SVG_W} height={SVG_H} className="mx-auto block" style={{ maxWidth: '100%' }}>
+          {result.edges.filter((e) => e.r > 0.3).map((edge, i) => {
+            const src = nodeMap.get(edge.source)
+            const tgt = nodeMap.get(edge.target)
+            if (!src || !tgt) return null
+            const isHighlighted = !selectedNode || edge.source === selectedNode || edge.target === selectedNode
+            return (
+              <line
+                key={i}
+                x1={src.x} y1={src.y} x2={tgt.x} y2={tgt.y}
+                stroke={edge.r > 0 ? '#fb923c' : '#60a5fa'}
+                strokeWidth={1 + edge.r * 5}
+                strokeOpacity={isHighlighted ? 0.8 : 0.1}
+              />
+            )
+          })}
+          {result.names.map((name, i) => {
+            const pos = positions[i]
+            const r = 8 + 22 * Math.sqrt(result.totals[i] / maxTotal)
+            const isSelected = selectedNode === name
+            const isDimmed = !!selectedNode && !selectedEdges.has(name) && !isSelected
+            return (
+              <g key={name} style={{ cursor: 'pointer' }} onClick={() => setSelectedNode(isSelected ? null : name)}>
+                <circle
+                  cx={pos.x} cy={pos.y} r={r}
+                  fill="#6366f1" fillOpacity={isDimmed ? 0.15 : isSelected ? 1 : 0.65}
+                  stroke={isSelected ? '#fff' : '#6366f1'} strokeWidth={isSelected ? 2 : 0}
+                />
+                <text x={pos.x} y={pos.y + r + 11} textAnchor="middle" fill={isDimmed ? '#9ca3af' : '#374151'} fontSize={9}>
+                  {name.length > 10 ? name.slice(0, 10) + '…' : name}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+        {selectedNode && (
+          <div className="mt-2 bg-gray-50 rounded-lg p-3 text-xs">
+            <p className="text-gray-900 font-medium mb-1">
+              <span className="text-indigo-600">{selectedNode}</span> correlates with:
+            </p>
+            <p className="text-gray-700">
+              {result.edges
                 .filter((e) => e.source === selectedNode || e.target === selectedNode)
                 .map((e) => (e.source === selectedNode ? e.target : e.source))
-                .join(', ') || 'no strong correlations'}
+                .join(', ') || 'No strong correlations found.'}
+            </p>
+          </div>
+        )}
+      </div>
+    )
+  }, [result, positions, selectedNode, selectedEdges, maxTotal])
+
+  // --- Bubble view ---
+  const bubbleView = useMemo(() => {
+    if (!result?.edges.length) return null
+    const filtered = result.edges.filter((e) => Math.abs(e.r) > 0.3)
+    if (!filtered.length) return (
+      <p className="text-gray-400 text-xs text-center py-8">No pairs with |r| &gt; 0.3 to display.</p>
+    )
+
+    const nameIdx = new Map(result.names.map((n, i) => [n, i]))
+    const PAD = 50
+    const BSVG_W = 400
+    const BSVG_H = 320
+
+    const getAvg = (name: string) => result.avgMonthlys[nameIdx.get(name) ?? 0] ?? 0
+
+    const allX = filtered.map((e) => getAvg(e.source))
+    const allY = filtered.map((e) => getAvg(e.target))
+    const maxX = Math.max(...allX, 1)
+    const maxY = Math.max(...allY, 1)
+
+    const toSvgX = (v: number) => PAD + (v / maxX) * (BSVG_W - PAD * 2)
+    const toSvgY = (v: number) => BSVG_H - PAD - (v / maxY) * (BSVG_H - PAD * 2)
+
+    const sorted = [...filtered].sort((a, b) => Math.abs(b.r) - Math.abs(a.r))
+    const labelTop = 5
+
+    return (
+      <div className="overflow-x-auto">
+        <svg width={BSVG_W} height={BSVG_H} className="block mx-auto">
+          {/* Axis lines */}
+          <line x1={PAD} y1={PAD} x2={PAD} y2={BSVG_H - PAD} stroke="#e5e7eb" strokeWidth={1} />
+          <line x1={PAD} y1={BSVG_H - PAD} x2={BSVG_W - PAD} y2={BSVG_H - PAD} stroke="#e5e7eb" strokeWidth={1} />
+          <text x={BSVG_W / 2} y={BSVG_H - 6} textAnchor="middle" fontSize={9} fill="#9ca3af">Avg monthly spend (source)</text>
+          <text x={12} y={BSVG_H / 2} textAnchor="middle" fontSize={9} fill="#9ca3af" transform={`rotate(-90, 12, ${BSVG_H / 2})`}>Avg monthly spend (target)</text>
+
+          {sorted.map((edge, i) => {
+            const x = toSvgX(getAvg(edge.source))
+            const y = toSvgY(getAvg(edge.target))
+            const bubbleR = 5 + Math.abs(edge.r) * 18
+            const color = edge.r > 0 ? '#fb923c' : '#60a5fa'
+            const showLabel = i < labelTop
+            return (
+              <g key={i}
+                onMouseEnter={(e) => {
+                  const rect = (e.currentTarget as SVGElement).getBoundingClientRect()
+                  setTooltip({
+                    x: rect.left + window.scrollX + bubbleR,
+                    y: rect.top + window.scrollY,
+                    text: [
+                      `${edge.source} × ${edge.target}`,
+                      `r = ${edge.r >= 0 ? '+' : ''}${edge.r.toFixed(2)}`,
+                    ],
+                  })
+                }}
+                onMouseLeave={() => setTooltip(null)}
+                style={{ cursor: 'pointer' }}
+              >
+                <circle cx={x} cy={y} r={bubbleR} fill={color} fillOpacity={0.55} />
+                {showLabel && (
+                  <text x={x} y={y - bubbleR - 3} textAnchor="middle" fontSize={8} fill="#374151">
+                    {edge.source.slice(0, 8)} + {edge.target.slice(0, 8)}
+                  </text>
+                )}
+              </g>
+            )
+          })}
+        </svg>
+        <div className="flex gap-3 justify-center mt-2 text-xs text-gray-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-400 inline-block" /> Positive</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-400 inline-block" /> Negative</span>
+          <span className="text-gray-400">Bubble size = |r|</span>
+        </div>
+      </div>
+    )
+  }, [result])
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex items-start justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <Network className="w-5 h-5 text-orange-600" />
+          <h3 className="text-base font-semibold text-gray-900">Spending DNA — Correlation</h3>
+        </div>
+        <span className="text-xs text-gray-400">Based on all available data</span>
+      </div>
+      <p className="text-xs text-gray-500 mb-3">How sub-category spending patterns move together — top 15 sub-categories</p>
+
+      {computing && (
+        <div className="flex items-center justify-center py-8 gap-2 text-gray-500 text-sm">
+          <span className="animate-spin">⟳</span> Computing…
+        </div>
+      )}
+
+      {!computing && !result && error && (
+        <p className="text-red-400 text-xs text-center py-4">{error}</p>
+      )}
+
+      {/* V2.7.4 D042 — n<3 leaderboard mode (new-user retention: A+D) */}
+      {!computing && result && result.displayMode === 'leaderboard' && (
+        <>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+            Correlations unlock at <strong>3 months</strong> of data — you&apos;re at <strong>{result.monthsCount} month{result.monthsCount === 1 ? '' : 's'}</strong>. Top spend categories shown for now.
+          </p>
+          {result.leaderboard.length === 0 ? (
+            <p className="text-xs text-gray-500 text-center py-6">No expense data yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {result.leaderboard.map((row, i) => (
+                <div key={row.name} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded">
+                  <span className="text-sm text-gray-700"><span className="text-gray-400 mr-2">#{i + 1}</span>{row.name}</span>
+                  <span className="text-sm font-medium text-gray-900">₹{Math.round(row.total).toLocaleString('en-IN')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-3 text-xs text-gray-400">
+            {daysAgo !== null ? `Computed ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}` : ''}
+          </div>
+        </>
+      )}
+
+      {!computing && result && result.displayMode === 'correlation' && result.isFallback && (
+        <p className="text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
+          No sub-category data found — showing category-level correlations. Assign sub-categories to transactions for deeper analysis.
+        </p>
+      )}
+
+      {!computing && result && result.displayMode === 'correlation' && !result.hasEnoughData && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3">
+          Limited data ({result.monthsCount} months) — correlations shown may not be statistically significant. Add more transactions over time for stronger patterns.
+        </p>
+      )}
+
+      {!computing && result && result.displayMode === 'correlation' && !result.names.length && (
+        <p className="text-xs text-gray-500 text-center py-8">Not enough expense data to compute correlations.</p>
+      )}
+
+      {!computing && result && result.displayMode === 'correlation' && result.names.length > 0 && (
+        <>
+          {/* View toggle */}
+          <div className="flex gap-1 mb-4">
+            {(['matrix', 'chord', 'bubble'] as ViewMode[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setViewMode(v)}
+                className={`px-3 py-1 rounded text-xs font-medium transition capitalize ${
+                  viewMode === v
+                    ? 'bg-orange-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {v === 'matrix' ? 'Heatmap' : v === 'chord' ? 'Chord' : 'Bubble'}
+              </button>
+            ))}
+          </div>
+
+          {/* Legend for matrix */}
+          {viewMode === 'matrix' && (
+            <div className="flex items-center gap-3 mb-3 text-xs text-gray-500">
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-3 rounded-sm inline-block bg-red-600 opacity-80" /> Negative
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-3 rounded-sm inline-block bg-gray-200" /> ~0
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-4 h-3 rounded-sm inline-block" style={{ backgroundColor: 'rgb(34,145,94)' }} /> Positive
+              </span>
             </div>
           )}
 
-          <div className="mt-3 overflow-x-auto">
-            <svg
-              width={W}
-              height={H}
-              className="mx-auto"
-              onClick={(e) => {
-                if ((e.target as SVGElement).tagName === 'svg') setSelectedNode(null)
-              }}
+          {viewMode === 'chord' && (
+            <div className="flex gap-3 mb-3 text-xs text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-orange-400 inline-block" /> Positive</span>
+              <span className="flex items-center gap-1.5"><span className="w-5 h-0.5 bg-blue-400 inline-block" /> Negative</span>
+            </div>
+          )}
+
+          {viewMode === 'matrix' && matrixView}
+          {viewMode === 'chord' && chordView}
+          {viewMode === 'bubble' && bubbleView}
+
+          {/* Floating tooltip */}
+          {tooltip && (
+            <div
+              className="fixed z-50 bg-white border border-gray-200 rounded px-3 py-2 text-xs pointer-events-none shadow-lg"
+              style={{ left: tooltip.x + 8, top: tooltip.y - 8 }}
             >
-              {/* Edges */}
-              {edges.map((edge, i) => {
-                const src = posMap.get(edge.source)
-                const tgt = posMap.get(edge.target)
-                if (!src || !tgt) return null
-                const isHighlighted =
-                  !selectedNode ||
-                  edge.source === selectedNode ||
-                  edge.target === selectedNode
-                return (
-                  <line
-                    key={i}
-                    x1={src.x}
-                    y1={src.y}
-                    x2={tgt.x}
-                    y2={tgt.y}
-                    stroke={edge.r > 0 ? '#f97316' : '#60a5fa'}
-                    strokeWidth={1 + Math.abs(edge.r) * 3}
-                    strokeOpacity={isHighlighted ? 0.8 : 0.15}
-                  />
-                )
-              })}
+              {tooltip.text.map((line, i) => (
+                <p key={i} className={i === 0 ? 'font-medium text-gray-900' : 'text-gray-500'}>{line}</p>
+              ))}
+            </div>
+          )}
 
-              {/* Nodes */}
-              {nodePositions.map((node) => {
-                const isSelected = selectedNode === node.id
-                const isDimmed = selectedNode && !selectedEdges?.has(node.id) && !isSelected
-                return (
-                  <g
-                    key={node.id}
-                    onClick={() => setSelectedNode(isSelected ? null : node.id)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <circle
-                      cx={node.x}
-                      cy={node.y}
-                      r={node.r}
-                      fill={isSelected ? '#6366f1' : '#334155'}
-                      stroke={isSelected ? '#818cf8' : '#475569'}
-                      strokeWidth={isSelected ? 2 : 1}
-                      opacity={isDimmed ? 0.3 : 1}
-                    />
-                    <text
-                      x={node.x}
-                      y={node.y + node.r + 11}
-                      textAnchor="middle"
-                      fontSize={8}
-                      fill={isDimmed ? '#475569' : '#94a3b8'}
-                    >
-                      {node.id.length > 12 ? node.id.slice(0, 11) + '…' : node.id}
-                    </text>
-                    <text
-                      x={node.x}
-                      y={node.y + 3}
-                      textAnchor="middle"
-                      fontSize={7}
-                      fill={isDimmed ? '#334155' : '#e2e8f0'}
-                    >
-                      {formatINR(node.totalSpend)}
-                    </text>
-                  </g>
-                )
-              })}
-            </svg>
-          </div>
-
-          <div className="mt-3 flex gap-4 text-xs text-slate-500">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-6 h-0.5 bg-orange-400" /> Positive correlation
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-6 h-0.5 bg-blue-400" /> Negative correlation
-            </span>
-            <span className="text-slate-600">· Only |r| &gt; 0.4 shown · Node size = total spend</span>
+          <div className="mt-3 text-xs text-gray-400">
+            {daysAgo !== null ? `Computed ${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}` : ''}
+            {result.algo !== 'none' ? ` · via ${result.algo}` : ''}
+            {computing ? ' · Updating…' : ''}
           </div>
         </>
       )}

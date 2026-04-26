@@ -1,360 +1,409 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/lib/db'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import { resolveAIKey } from '@/lib/resolveAIKey'
-import { AlertTriangle, Eye } from 'lucide-react'
+import { Eye, RefreshCw, ThumbsUp, Minus, ThumbsDown, AlertTriangle } from 'lucide-react'
 
-const LAST_VIEWED_KEY = 'uncomfortable_truth_last_viewed'
-const FEEDBACK_KEY = 'uncomfortable_truth_feedback'
-
-// Emotional anchor table
-const ANCHORS = [
-  { amount: 15000,   label: 'a weekend Goa trip' },
-  { amount: 80000,   label: 'a Bali trip' },
-  { amount: 150000,  label: 'a Europe trip' },
-  { amount: 25000,   label: 'an iPhone SE' },
-  { amount: 120000,  label: 'a MacBook Air' },
-  { amount: 8000,    label: '1 month gym membership' },
-  { amount: 12000,   label: '1 month groceries for family' },
+// ── Emotional conversion table ────────────────────────────────────────────────
+const CONVERSIONS = [
+  { amount: 15000, label: 'a weekend Goa trip' },
+  { amount: 80000, label: 'a Bali trip' },
+  { amount: 150000, label: 'a Europe trip' },
+  { amount: 25000, label: 'an iPhone SE' },
+  { amount: 120000, label: 'a MacBook Air' },
+  { amount: 8000, label: '1 month gym membership' },
+  { amount: 12000, label: '1 month of family groceries' },
 ]
 
-function closestAnchor(amount: number): string {
-  const sorted = [...ANCHORS].sort(
-    (a, b) => Math.abs(a.amount - amount) - Math.abs(b.amount - amount)
+function bestConversion(amount: number): string {
+  const sorted = [...CONVERSIONS].sort((a, b) => b.amount - a.amount)
+  const match = sorted.find((c) => amount >= c.amount)
+  if (!match) return ''
+  const times = Math.floor(amount / match.amount)
+  return times === 1 ? match.label : `${times}× ${match.label}`
+}
+
+interface TruthStatement {
+  category: string
+  totalAmount: number
+  narrative: string
+}
+
+interface ComputedNumbers {
+  topCategories: { name: string; total: number; years: number }[]
+  expenseGrowthPct: number
+  incomeGrowthPct: number
+  topGrowingCategory: string
+}
+
+function formatINR(n: number) {
+  return `₹${n.toLocaleString('en-IN')}`
+}
+
+async function generateNarratives(
+  numbers: ComputedNumbers,
+  provider: 'gemini' | 'claude' | 'openai',
+  apiKey: string
+): Promise<string[]> {
+  const prompt = `You are a brutally honest personal finance advisor. Based on the real spending data below, write 4-6 short, emotionally direct statements (1-2 sentences each). Use the numbers exactly as given — do not change them. Be candid but not cruel. No markdown, no bullet points, just plain numbered statements like "1. ..."
+
+Data:
+${numbers.topCategories
+  .map(
+    (c) =>
+      `- ${c.name}: ${formatINR(c.total)} over ${c.years} year(s). That's roughly ${bestConversion(c.total)}.`
   )
-  return sorted[0].label
+  .join('\n')}
+- Expense growth rate: ${numbers.expenseGrowthPct.toFixed(1)}% per year
+- Income growth rate: ${numbers.incomeGrowthPct.toFixed(1)}% per year
+- Fastest growing spending category: ${numbers.topGrowingCategory}
+
+Write 4-6 numbered statements. Each must include the real ₹ figure from the data above. Keep them under 40 words each.`
+
+  const parseLines = (text: string) =>
+    text.split('\n').filter((l: string) => /^\d+\./.test(l.trim())).map((l: string) => l.replace(/^\d+\.\s*/, '').trim())
+
+  if (provider === 'gemini') {
+    const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash']
+    for (const model of GEMINI_MODELS) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 600, temperature: 0.7 },
+          }),
+        }
+      )
+      if (res.status === 404) continue
+      const data = await res.json()
+      const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+      if (text) return parseLines(text)
+    }
+    return []
+  } else if (provider === 'openai') {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 600,
+      }),
+    })
+    const data = await res.json()
+    const text: string = data.choices?.[0]?.message?.content ?? ''
+    return parseLines(text)
+  } else {
+    // claude
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    })
+    const data = await res.json()
+    const text: string = data.content?.[0]?.text ?? ''
+    return parseLines(text)
+  }
 }
 
-function formatINR(v: number) {
-  if (v >= 10000000) return `₹${(v / 10000000).toFixed(1)}Cr`
-  if (v >= 100000) return `₹${(v / 100000).toFixed(1)}L`
-  if (v >= 1000) return `₹${(v / 1000).toFixed(0)}K`
-  return `₹${v.toFixed(0)}`
-}
-
-function monthDiff(a: string, b: string): number {
-  const da = new Date(a)
-  const db2 = new Date(b)
-  return (db2.getFullYear() - da.getFullYear()) * 12 + (db2.getMonth() - da.getMonth())
-}
-
-function annualGrowthPct(old: number, current: number): number {
-  if (old === 0) return 0
-  return Math.round(((current - old) / old) * 100)
+// V2.7.4 D044 — small synchronous hash for stable per-statement feedback keys.
+function statementHash(s: string): string {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h) + s.charCodeAt(i)
+    h |= 0
+  }
+  return Math.abs(h).toString(16)
 }
 
 export function UncomfortableTruth() {
-  const [step, setStep] = useState<'idle' | 'confirm' | 'loading' | 'revealed' | 'feedback_done'>('idle')
+  const db = useDb()
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'loading' | 'revealed'>('idle')
   const [statements, setStatements] = useState<string[]>([])
-  const [feedbackGiven, setFeedbackGiven] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [noKey, setNoKey] = useState(false)
+  // V2.7.4 D044 — per-statement transient feedback (cleared on recompute).
+  // Keyed by statementHash. Each click also writes to feedbackLog for training.
+  const [stmtFeedback, setStmtFeedback] = useState<Map<string, 'up' | 'down'>>(new Map())
+
+  const lastShown = useLiveQuery(async () => {
+    const s = await db.appSettings.get('uncomfortable_truth_last_shown')
+    return s?.value ?? null
+  }, [])
+
+  const monthsAgo = lastShown
+    ? Math.floor((Date.now() - new Date(lastShown).getTime()) / (30 * 24 * 60 * 60 * 1000))
+    : null
 
   const transactions = useLiveQuery(() => db.transactions.toArray(), [])
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const lastViewedSetting = useLiveQuery(() => db.appSettings.get(LAST_VIEWED_KEY), [])
+  const categories = useCleanCategories()
 
-  const lastViewedMonthsAgo = useMemo(() => {
-    if (!lastViewedSetting) return null
-    const months = monthDiff(lastViewedSetting.value, new Date().toISOString())
-    return months
-  }, [lastViewedSetting])
-
-  // Compute raw numbers for AI narration
-  const computedNumbers = useMemo(() => {
+  const computeNumbers = useCallback((): ComputedNumbers | null => {
     if (!transactions || !categories) return null
-    const catMap = new Map(categories.map((c) => [c.id!, c.name]))
+    const catMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name]))
 
-    const expenses = transactions.filter((t) => t.transactionType === 'EXPENSE')
+    const totalByCat = new Map<string, number>()
+    const yearSet = new Set<number>()
 
-    // Total per category (all time)
-    const catTotal = new Map<string, number>()
-    for (const t of expenses) {
-      const name = t.categoryId ? catMap.get(t.categoryId) ?? 'Other' : 'Other'
-      catTotal.set(name, (catTotal.get(name) ?? 0) + t.amount)
+    for (const t of transactions.filter(Boolean)) {
+      if (t.transactionType !== 'EXPENSE') continue
+      const catName = t.categoryId ? catMap.get(t.categoryId) ?? 'Other' : 'Other'
+      totalByCat.set(catName, (totalByCat.get(catName) ?? 0) + t.amount)
+      yearSet.add(new Date(t.date).getFullYear())
     }
 
-    const topCats = Array.from(catTotal.entries())
+    const yearsSpan = Math.max(yearSet.size, 1)
+    const topCats = Array.from(totalByCat.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
+      .map(([name, total]) => ({ name, total, years: yearsSpan }))
 
-    // Date range
-    const allDates = transactions.map((t) => t.date).sort()
-    const firstDate = allDates[0] ?? new Date().toISOString().slice(0, 10)
-    const lastDate = allDates[allDates.length - 1] ?? firstDate
-    const totalMonths = Math.max(1, monthDiff(firstDate, lastDate))
-    const years = (totalMonths / 12).toFixed(1)
+    // Growth rates (simplified: compare first year avg vs last year avg)
+    const allYears = Array.from(yearSet).sort()
+    const firstYear = allYears[0]
+    const lastYear = allYears[allYears.length - 1]
 
-    // Monthly totals for growth calc
-    const now = new Date()
-    const threeYearsAgo = new Date(now)
-    threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3)
+    let firstExpense = 0, lastExpense = 0, firstIncome = 0, lastIncome = 0
+    for (const t of transactions.filter(Boolean)) {
+      const yr = new Date(t.date).getFullYear()
+      if (t.transactionType === 'EXPENSE') {
+        if (yr === firstYear) firstExpense += t.amount
+        if (yr === lastYear) lastExpense += t.amount
+      } else if (t.transactionType === 'INCOME') {
+        if (yr === firstYear) firstIncome += t.amount
+        if (yr === lastYear) lastIncome += t.amount
+      }
+    }
 
-    const recentCatTotal = new Map<string, number>()
-    const oldCatTotal = new Map<string, number>()
+    const yearsElapsed = Math.max(lastYear - firstYear, 1)
+    const expenseGrowthPct = firstExpense > 0
+      ? ((lastExpense - firstExpense) / firstExpense / yearsElapsed) * 100
+      : 0
+    const incomeGrowthPct = firstIncome > 0
+      ? ((lastIncome - firstIncome) / firstIncome / yearsElapsed) * 100
+      : 0
 
-    for (const t of expenses) {
+    // Fastest growing category (year-over-year last available)
+    const catFirstYear = new Map<string, number>()
+    const catLastYear = new Map<string, number>()
+    for (const t of transactions.filter(Boolean)) {
+      if (t.transactionType !== 'EXPENSE') continue
+      const yr = new Date(t.date).getFullYear()
       const name = t.categoryId ? catMap.get(t.categoryId) ?? 'Other' : 'Other'
-      const d = new Date(t.date)
-      if (d >= threeYearsAgo) recentCatTotal.set(name, (recentCatTotal.get(name) ?? 0) + t.amount)
-      else oldCatTotal.set(name, (oldCatTotal.get(name) ?? 0) + t.amount)
+      if (yr === firstYear) catFirstYear.set(name, (catFirstYear.get(name) ?? 0) + t.amount)
+      if (yr === lastYear) catLastYear.set(name, (catLastYear.get(name) ?? 0) + t.amount)
+    }
+    let topGrowingCategory = 'N/A'
+    let maxGrowth = -Infinity
+    for (const [name, lastAmt] of catLastYear.entries()) {
+      const firstAmt = catFirstYear.get(name) ?? 0
+      if (firstAmt === 0) continue
+      const growth = (lastAmt - firstAmt) / firstAmt
+      if (growth > maxGrowth) { maxGrowth = growth; topGrowingCategory = name }
     }
 
-    // Monthly income growth (first vs last year)
-    const firstYearIncome = transactions
-      .filter((t) => t.transactionType === 'INCOME' && t.date.slice(0, 4) === firstDate.slice(0, 4))
-      .reduce((s, t) => s + t.amount, 0)
-    const lastYearIncome = transactions
-      .filter((t) => t.transactionType === 'INCOME' && t.date.slice(0, 4) === lastDate.slice(0, 4))
-      .reduce((s, t) => s + t.amount, 0)
-    const incomeGrowthPct = annualGrowthPct(firstYearIncome, lastYearIncome)
-
-    // Top eating-out / social spend
-    const eatingKeywords = ['eating out', 'restaurant', 'dining', 'food', 'zomato', 'swiggy']
-    const eatingTotal = Array.from(catTotal.entries())
-      .filter(([name]) => eatingKeywords.some((k) => name.toLowerCase().includes(k)))
-      .reduce((s, [, v]) => s + v, 0)
-    const eatingGrowthPct = annualGrowthPct(
-      Array.from(oldCatTotal.entries())
-        .filter(([name]) => eatingKeywords.some((k) => name.toLowerCase().includes(k)))
-        .reduce((s, [, v]) => s + v, 0),
-      Array.from(recentCatTotal.entries())
-        .filter(([name]) => eatingKeywords.some((k) => name.toLowerCase().includes(k)))
-        .reduce((s, [, v]) => s + v, 0)
-    )
-
-    // Rent equivalent
-    const rentTotal = catTotal.get('Rent') ?? catTotal.get('rent') ?? 0
-    const avgMonthlyExpense = expenses.reduce((s, t) => s + t.amount, 0) / totalMonths
-
-    return {
-      topCats,
-      years,
-      totalMonths,
-      incomeGrowthPct,
-      eatingTotal,
-      eatingGrowthPct,
-      rentTotal,
-      avgMonthlyExpense,
-    }
+    return { topCategories: topCats, expenseGrowthPct, incomeGrowthPct, topGrowingCategory }
   }, [transactions, categories])
 
-  const generateTruths = useCallback(async () => {
-    if (!computedNumbers) return
-    setStep('loading')
+  const handleReveal = useCallback(async () => {
+    setPhase('loading')
+    setError(null)
+    setStmtFeedback(new Map()) // D044 — reset transient per-statement feedback on every reveal/recompute
 
-    const {
-      topCats, years, incomeGrowthPct, eatingTotal,
-      eatingGrowthPct, rentTotal, avgMonthlyExpense,
-    } = computedNumbers
-
-    const resolvedKey = await resolveAIKey()
-
-    if (!resolvedKey) {
-      // Fall back to rule-based statements
-      const fallbackStatements: string[] = []
-
-      if (topCats[0]) {
-        const [name, total] = topCats[0]
-        const anchor = closestAnchor(total)
-        fallbackStatements.push(
-          `In ${years} years, you spent ${formatINR(total)} on ${name}. That could have been ${anchor}.`
-        )
-      }
-      if (eatingTotal > 0 && eatingGrowthPct > 10) {
-        fallbackStatements.push(
-          `Your eating out spend grew ${eatingGrowthPct}% in 3 years, while your income grew ${incomeGrowthPct}%.`
-        )
-      }
-      if (rentTotal > 0) {
-        const months = Math.round(topCats[1]?.[1] / (avgMonthlyExpense / 12) ?? 0)
-        fallbackStatements.push(
-          `You spent ${formatINR(topCats[1]?.[1] ?? 0)} on ${topCats[1]?.[0] ?? 'your second category'}. That's ~${months} months of rent.`
-        )
-      }
-      if (topCats[2]) {
-        const [name, total] = topCats[2]
-        fallbackStatements.push(
-          `${formatINR(total)} on ${name} over ${years} years — ${closestAnchor(total / parseFloat(years))} per year.`
-        )
-      }
-
-      setStatements(fallbackStatements.slice(0, 6))
-      await saveLastViewed()
-      setStep('revealed')
+    const numbers = computeNumbers()
+    if (!numbers) {
+      setError('Not enough data to compute.')
+      setPhase('idle')
       return
     }
 
-    // Build prompt with numbers only — AI writes narrative around them
-    const facts = topCats.map(([name, total]) => `${name}: ${formatINR(total)} over ${years} years`).join('\n')
-    const prompt = `You are writing The Uncomfortable Truth — emotionally honest financial facts for a user.
-
-Given these computed spending facts, write 4-6 short, emotionally resonant statements (1-2 sentences each).
-Use the exact amounts provided. Do NOT invent numbers. Convert amounts to relatable comparisons where useful.
-
-Spending data:
-${facts}
-
-Eating out growth: ${eatingGrowthPct}% in 3 years vs income growth ${incomeGrowthPct}%
-Rent equivalent: ${formatINR(rentTotal)}/yr
-
-Conversion anchors: ₹15,000 = weekend Goa trip, ₹80,000 = Bali trip, ₹1,50,000 = Europe trip, ₹25,000 = iPhone SE, ₹1,20,000 = MacBook Air
-
-Write only the statements, one per line. No bullets. No headers.`
-
-    try {
-      let text = ''
-
-      if (resolvedKey.provider === 'gemini') {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${resolvedKey.key}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-          }
-        )
-        const json = await res.json()
-        text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
-      } else {
-        const res = await fetch('/api/fain/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: prompt, context: {} }),
-        })
-        const json = await res.json()
-        text = json.reply ?? ''
-      }
-
-      const lines = text
-        .split('\n')
-        .map((l: string) => l.trim())
-        .filter((l: string) => l.length > 10)
-        .slice(0, 6)
-
-      setStatements(lines.length >= 2 ? lines : [text])
-    } catch {
-      setStatements([`In ${years} years, your top spend was ${formatINR(topCats[0]?.[1] ?? 0)} on ${topCats[0]?.[0] ?? 'expenses'}. That could have been ${closestAnchor(topCats[0]?.[1] ?? 0)}.`])
+    const { key, provider, showSettingsPrompt } = await resolveAIKey()
+    if (showSettingsPrompt || !key || !provider) {
+      setNoKey(true)
+      // Fallback: generate rule-based statements without AI
+      const fallback = numbers.topCategories.slice(0, 4).map((c) => {
+        const conv = bestConversion(c.total)
+        return `You spent ${formatINR(c.total)} on ${c.name} over ${c.years} year(s).${conv ? ` That could have been ${conv}.` : ''}`
+      })
+      setStatements(fallback)
+      await db.appSettings.put({ key: 'uncomfortable_truth_last_shown', value: new Date().toISOString() })
+      setPhase('revealed')
+      return
     }
 
-    await saveLastViewed()
-    setStep('revealed')
-  }, [computedNumbers])
+    try {
+      const narratives = await generateNarratives(numbers, provider, key)
+      setStatements(narratives.length > 0 ? narratives : ['Could not generate statements. Try again.'])
+    } catch {
+      // Fallback to rule-based
+      const fallback = numbers.topCategories.slice(0, 4).map((c) => {
+        const conv = bestConversion(c.total)
+        return `You spent ${formatINR(c.total)} on ${c.name} over ${c.years} year(s).${conv ? ` That could have been ${conv}.` : ''}`
+      })
+      setStatements(fallback)
+    }
 
-  const saveLastViewed = async () => {
-    await db.appSettings.put({ key: LAST_VIEWED_KEY, value: new Date().toISOString() })
-  }
+    await db.appSettings.put({ key: 'uncomfortable_truth_last_shown', value: new Date().toISOString() })
+    setPhase('revealed')
+  }, [computeNumbers, db])
 
-  const handleFeedback = async (response: string) => {
-    setFeedbackGiven(response)
+  // V2.7.4 D044 — per-statement vote. Idempotent: clicking the same vote twice
+  // doesn't double-write; switching vote writes a new feedbackLog entry.
+  const voteStatement = useCallback(async (stmt: string, vote: 'up' | 'down') => {
+    const key = statementHash(stmt)
+    const prev = stmtFeedback.get(key)
+    if (prev === vote) return
+    setStmtFeedback((m) => {
+      const next = new Map(m)
+      next.set(key, vote)
+      return next
+    })
     await db.feedbackLog.add({
       timestamp: new Date().toISOString(),
-      featureId: 'uncomfortable_truth',
-      insightType: 'truth_reveal',
-      insightSummary: statements.join(' | '),
-      userResponse: response as 'POSITIVE' | 'NEGATIVE',
+      featureId: 'UNCOMFORTABLE_TRUTH',
+      insightType: key,
+      insightSummary: stmt,
+      userResponse: vote === 'up' ? 'POSITIVE' : 'NEGATIVE',
       monthYear: new Date().toISOString().slice(0, 7),
       syncedToSheet: false,
     })
-    setStep('feedback_done')
-  }
+  }, [db, stmtFeedback])
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <div className="flex items-start justify-between mb-1">
-        <div>
-          <h3 className="text-base font-semibold text-white">The Uncomfortable Truth</h3>
-          <p className="text-xs text-slate-400 mt-0.5">Based on all available data · Manual trigger only</p>
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-amber-600" />
+          <h3 className="text-base font-semibold text-gray-900">The Uncomfortable Truth</h3>
         </div>
-        {lastViewedMonthsAgo !== null && (
-          <span className="text-xs text-slate-500">
-            Last viewed: {lastViewedMonthsAgo === 0 ? 'this month' : `${lastViewedMonthsAgo}mo ago`}
-          </span>
+        {monthsAgo !== null && phase === 'idle' && (
+          <span className="text-xs text-gray-400">Last viewed: {monthsAgo}mo ago</span>
         )}
       </div>
+      <p className="text-xs text-gray-500 mb-5">Honest, unfiltered facts about your spending over all available history.</p>
 
-      {step === 'idle' && (
-        <div className="mt-5 text-center">
-          <p className="text-sm text-slate-400 mb-4">
-            This will show honest, unfiltered facts about your spending. Ready?
-          </p>
-          <button
-            onClick={() => setStep('confirm')}
-            className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-xl transition"
-          >
-            <Eye className="w-4 h-4" />
-            Show My Truth
-          </button>
-        </div>
+      {/* IDLE */}
+      {phase === 'idle' && (
+        <button
+          onClick={() => setPhase('confirm')}
+          className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-medium text-white transition"
+        >
+          <Eye className="w-4 h-4" />
+          Show My Truth
+        </button>
       )}
 
-      {step === 'confirm' && (
-        <div className="mt-5 bg-slate-700/50 border border-slate-600 rounded-xl p-4 text-center">
-          <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-3" />
-          <p className="text-sm text-white font-medium mb-2">Are you sure?</p>
-          <p className="text-xs text-slate-400 mb-4">
-            This will show honest, unfiltered facts about your spending. No judgment, just data.
+      {/* CONFIRM */}
+      {phase === 'confirm' && (
+        <div className="bg-gray-50 border border-amber-200 rounded-xl p-5">
+          <p className="text-sm text-gray-700 mb-4">
+            This will show honest, unfiltered facts about your spending. Ready?
           </p>
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-3">
             <button
-              onClick={() => setStep('idle')}
-              className="px-4 py-2 text-sm text-slate-300 hover:text-white border border-slate-600 rounded-lg transition"
-            >
-              Not yet
-            </button>
-            <button
-              onClick={generateTruths}
-              className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg transition"
+              onClick={handleReveal}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-medium text-white transition"
             >
               Yes, show me
             </button>
+            <button
+              onClick={() => setPhase('idle')}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-600 transition"
+            >
+              Not now
+            </button>
           </div>
         </div>
       )}
 
-      {step === 'loading' && (
-        <div className="flex items-center justify-center h-40 text-slate-400 text-sm">
-          Analysing your financial history…
+      {/* LOADING */}
+      {phase === 'loading' && (
+        <div className="flex items-center gap-3 py-8 text-gray-500 text-sm">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          Analysing your full history…
         </div>
       )}
 
-      {(step === 'revealed' || step === 'feedback_done') && (
+      {/* REVEALED */}
+      {phase === 'revealed' && (
         <>
-          <div className="mt-4 space-y-3">
-            {statements.map((s, i) => (
-              <div
-                key={i}
-                className="p-4 bg-slate-900 border border-slate-700 rounded-xl text-sm text-slate-200 leading-relaxed"
-              >
-                {s}
-              </div>
-            ))}
+          {noKey && (
+            <p className="text-xs text-amber-600 mb-3">No AI key found — showing rule-based insights. Add a key in Settings for richer narratives.</p>
+          )}
+          {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
+
+          <div className="space-y-3 mb-4">
+            {statements.map((s, i) => {
+              const key = statementHash(s)
+              const vote = stmtFeedback.get(key)
+              return (
+                <div key={i} className="bg-gray-50 border-l-2 border-amber-500 rounded-r-lg px-4 py-3 flex items-start gap-3">
+                  <p className="text-sm text-gray-800 leading-relaxed flex-1">{s}</p>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => voteStatement(s, 'up')}
+                      title="Yes, this resonates"
+                      className={`p-1.5 rounded-lg border transition ${
+                        vote === 'up'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
+                          : 'border-gray-200 text-gray-400 hover:border-emerald-400 hover:text-emerald-600'
+                      }`}
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => voteStatement(s, 'down')}
+                      title="No, doesn't apply"
+                      className={`p-1.5 rounded-lg border transition ${
+                        vote === 'down'
+                          ? 'bg-red-50 border-red-400 text-red-700'
+                          : 'border-gray-200 text-gray-400 hover:border-red-400 hover:text-red-600'
+                      }`}
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
-          {step === 'revealed' && (
-            <div className="mt-5 border-t border-slate-700 pt-4">
-              <p className="text-xs text-slate-400 mb-3 text-center">
-                Did this change how you think about your spending?
-              </p>
-              <div className="flex gap-3 justify-center">
-                {['Yes', 'Somewhat', 'No'].map((label) => (
-                  <button
-                    key={label}
-                    onClick={() => handleFeedback(label)}
-                    className="px-4 py-1.5 text-xs border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white rounded-lg transition"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 'feedback_done' && (
-            <p className="mt-4 text-center text-xs text-slate-500">
-              Thanks for the feedback · {feedbackGiven}
-            </p>
-          )}
+          {/* Recompute / close — replaces the prior YES/SOMEWHAT/NO card-level block (D044) */}
+          <div className="border-t border-gray-200 pt-3 flex items-center gap-3">
+            <button
+              onClick={handleReveal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:border-amber-500 hover:text-gray-900 transition"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Recompute
+            </button>
+            <button
+              onClick={() => setPhase('idle')}
+              className="text-xs text-gray-500 hover:text-gray-900 transition"
+            >
+              Close
+            </button>
+            {stmtFeedback.size > 0 && (
+              <span className="text-xs text-gray-400 ml-auto">
+                {stmtFeedback.size} of {statements.length} rated
+              </span>
+            )}
+          </div>
         </>
       )}
     </div>

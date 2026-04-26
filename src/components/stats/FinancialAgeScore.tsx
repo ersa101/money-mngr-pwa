@@ -1,180 +1,224 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useDb } from '@/contexts/DbContext'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '@/lib/db'
-import { computeFinancialAge, type FinancialAgeFactor } from '@/lib/financialAgeUtils'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
+import { computeFinancialAge } from '@/lib/financialAgeUtils'
+import type { FinancialAgeInput } from '@/lib/financialAgeUtils'
+import { ChevronDown, ChevronUp, Brain } from 'lucide-react'
 
-function stddev(values: number[]): number {
-  if (values.length < 2) return 0
-  const mean = values.reduce((s, v) => s + v, 0) / values.length
-  return Math.sqrt(values.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / values.length)
-}
-
-function annualGrowthRate(values: number[]): number {
-  const valid = values.filter((v) => v > 0)
-  if (valid.length < 2) return 0
-  const years = valid.length / 12
-  return years > 0 ? (Math.pow(valid[valid.length - 1] / valid[0], 1 / years) - 1) * 100 : 0
+function getLastNMonths(n: number): string[] {
+  const now = new Date()
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now)
+    d.setMonth(d.getMonth() - (n - 1 - i))
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  })
 }
 
 export function FinancialAgeScore() {
-  const [showFactors, setShowFactors] = useState(false)
+  const db = useDb()
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  const [realAgeInput, setRealAgeInput] = useState('')
+  const [savedRealAge, setSavedRealAge] = useState<number | null>(null)
+
+  // Load saved real age from IndexedDB
+  const ageSetting = useLiveQuery(async () => {
+    return db.appSettings.get('user_real_age')
+  }, [])
+
+  const realAge = useMemo(() => {
+    if (savedRealAge !== null) return savedRealAge
+    if (ageSetting?.value) return parseInt(ageSetting.value, 10)
+    return null
+  }, [ageSetting, savedRealAge])
 
   const transactions = useLiveQuery(() => db.transactions.toArray(), [])
   const accounts = useLiveQuery(() => db.accounts.toArray(), [])
-  const realAgeSetting = useLiveQuery(() => db.appSettings.get('user_real_age'), [])
+  const categories = useCleanCategories()
 
   const result = useMemo(() => {
-    if (!transactions || !accounts) return null
+    if (!transactions || !accounts || !categories || realAge === null) return null
 
-    const realAge = realAgeSetting ? parseInt(realAgeSetting.value, 10) : 28
-    if (isNaN(realAge)) return null
+    const last12 = new Set(getLastNMonths(12))
+    const allMonths = Array.from(new Set(transactions.filter(Boolean).map((t) => t.date.slice(0, 7)))).sort()
 
-    // Build monthly income/expense
-    const monthlyIncome = new Map<string, number>()
-    const monthlyExpense = new Map<string, number>()
-    const monthlySavings = new Map<string, number>()
+    // Build monthly income/expense for last 12 months
+    const monthlyIncome: number[] = []
+    const monthlyExpense: number[] = []
+    const incomeByMonth = new Map<string, number>()
+    const expenseByMonth = new Map<string, number>()
 
-    for (const t of transactions) {
+    // Build all-time monthly for lifestyle inflation
+    const allIncomeByMonth = new Map<string, number>()
+    const allExpenseByMonth = new Map<string, number>()
+
+    // Find invest categories
+    const investKeywords = ['investment', 'invest', 'stock', 'mutual fund', 'mf', 'sip', 'nps', 'ppf', 'fd']
+    const catMap = new Map(categories.filter(Boolean).map((c) => [c.id!, c.name.toLowerCase()]))
+
+    for (const t of transactions.filter(Boolean)) {
       const month = t.date.slice(0, 7)
+      if (t.transactionType === 'TRANSFER') continue
+
       if (t.transactionType === 'INCOME') {
-        monthlyIncome.set(month, (monthlyIncome.get(month) ?? 0) + t.amount)
-      } else if (t.transactionType === 'EXPENSE') {
-        monthlyExpense.set(month, (monthlyExpense.get(month) ?? 0) + t.amount)
+        allIncomeByMonth.set(month, (allIncomeByMonth.get(month) ?? 0) + t.amount)
+        if (last12.has(month)) incomeByMonth.set(month, (incomeByMonth.get(month) ?? 0) + t.amount)
+      } else {
+        allExpenseByMonth.set(month, (allExpenseByMonth.get(month) ?? 0) + t.amount)
+        if (last12.has(month)) expenseByMonth.set(month, (expenseByMonth.get(month) ?? 0) + t.amount)
       }
     }
 
-    const months = Array.from(new Set([...monthlyIncome.keys(), ...monthlyExpense.keys()])).sort()
-    months.forEach((m) => {
-      const inc = monthlyIncome.get(m) ?? 0
-      const exp = monthlyExpense.get(m) ?? 0
-      monthlySavings.set(m, inc - exp)
-    })
+    const last12Sorted = getLastNMonths(12)
+    for (const m of last12Sorted) {
+      monthlyIncome.push(incomeByMonth.get(m) ?? 0)
+      monthlyExpense.push(expenseByMonth.get(m) ?? 0)
+    }
 
-    const incomeVals = months.map((m) => monthlyIncome.get(m) ?? 0)
-    const expenseVals = months.map((m) => monthlyExpense.get(m) ?? 0)
-    const savingsVals = months.map((m) => monthlySavings.get(m) ?? 0)
+    const allMonthsSorted = allMonths
+    const allMonthlyIncome = allMonthsSorted.map((m) => allIncomeByMonth.get(m) ?? 0)
+    const allMonthlyExpense = allMonthsSorted.map((m) => allExpenseByMonth.get(m) ?? 0)
 
-    const totalIncome = incomeVals.reduce((s, v) => s + v, 0)
-    const totalExpense = expenseVals.reduce((s, v) => s + v, 0)
-    const savingsRate = totalIncome > 0 ? ((totalIncome - totalExpense) / totalIncome) * 100 : 0
+    const totalIncome = monthlyIncome.reduce((a, b) => a + b, 0)
+    const avgMonthlyExpense = monthlyExpense.reduce((a, b) => a + b, 0) / 12
 
-    const incomeGrowthRate = annualGrowthRate(incomeVals)
-    const expenseGrowthRate = annualGrowthRate(expenseVals)
+    // Investment amount — transactions where category name matches invest keywords
+    let investmentAmount = 0
+    for (const t of transactions.filter(Boolean)) {
+      if (t.transactionType !== 'EXPENSE' || !last12.has(t.date.slice(0, 7))) continue
+      const catName = t.categoryId ? catMap.get(t.categoryId) ?? '' : ''
+      if (investKeywords.some((kw) => catName.includes(kw))) {
+        investmentAmount += t.amount
+      }
+    }
 
-    // Investment ratio: transactions to accounts of type INVESTMENT
-    const investmentAccountIds = new Set(
-      accounts.filter((a) => a.type === 'INVESTMENT').map((a) => a.id!)
-    )
-    const investmentTotal = transactions
-      .filter((t) => t.transactionType === 'TRANSFER' && investmentAccountIds.has(t.toAccountId ?? -1))
-      .reduce((s, t) => s + t.amount, 0)
-    const investmentRatio = totalIncome > 0 ? (investmentTotal / totalIncome) * 100 : 0
+    // Debt accounts — CREDIT_CARD or LOAN type with balance > 0
+    const debtAccountCount = accounts.filter(Boolean).filter(
+      (a) => (a.type === 'CREDIT_CARD' || (a.type as string) === 'LOAN') && a.balance > 0
+    ).length
 
-    // Debt accounts
-    const debtAccountCount = accounts.filter((a) => a.isLiability && a.balance > 0).length
+    // Safe-to-spend: sum of BANK + CASH + WALLET accounts above threshold
+    const safeToSpend = accounts
+      .filter(Boolean)
+      .filter((a) => ['BANK', 'CASH', 'WALLET'].includes(a.type))
+      .reduce((sum, a) => sum + Math.max(0, a.balance - (a.thresholdValue ?? 0)), 0)
 
-    // Safe-to-spend in months: use account threshold logic
-    const avgMonthlyExpense = expenseVals.length > 0
-      ? expenseVals.reduce((s, v) => s + v, 0) / expenseVals.length
-      : 1
-    const totalSafeBalance = accounts
-      .filter((a) => !a.isLiability && a.includeInNetWorth !== false)
-      .reduce((s, a) => s + Math.max(0, a.balance - a.thresholdValue), 0)
-    const safeToSpendMonths = avgMonthlyExpense > 0 ? totalSafeBalance / avgMonthlyExpense : 0
-
-    // Savings consistency (coefficient of variation)
-    const savingsMean = savingsVals.reduce((s, v) => s + v, 0) / (savingsVals.length || 1)
-    const savingsStd = stddev(savingsVals)
-    const monthlySavingsVarianceCoeff = savingsMean !== 0 ? Math.abs(savingsStd / savingsMean) : 1
-
-    return computeFinancialAge({
+    const input: FinancialAgeInput = {
       realAge,
-      savingsRate,
-      expenseGrowthRate,
-      incomeGrowthRate,
-      investmentRatio,
+      monthlyIncome,
+      monthlyExpense,
+      investmentAmount,
+      totalIncome,
       debtAccountCount,
-      safeToSpendMonths,
-      monthlySavingsVarianceCoeff,
-    })
-  }, [transactions, accounts, realAgeSetting])
+      safeToSpend,
+      avgMonthlyExpense,
+      allMonthlyIncome,
+      allMonthlyExpense,
+    }
 
-  if (!result) {
+    return computeFinancialAge(input)
+  }, [transactions, accounts, categories, realAge])
+
+  const saveRealAge = async () => {
+    const age = parseInt(realAgeInput, 10)
+    if (isNaN(age) || age < 10 || age > 100) return
+    await db.appSettings.put({ key: 'user_real_age', value: String(age) })
+    setSavedRealAge(age)
+  }
+
+  // Prompt for real age if not set
+  if (realAge === null) {
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-        <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
-          Loading…
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Brain className="w-5 h-5 text-purple-600" />
+          <h3 className="text-base font-semibold text-gray-900">Financial Age Score</h3>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">Enter your real age to compute your Financial Age.</p>
+        <div className="flex gap-2 max-w-xs">
+          <input
+            type="number"
+            value={realAgeInput}
+            onChange={(e) => setRealAgeInput(e.target.value)}
+            placeholder="Your age"
+            min={10}
+            max={100}
+            className="flex-1 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <button
+            onClick={saveRealAge}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm font-medium text-white transition"
+          >
+            Save
+          </button>
         </div>
       </div>
     )
   }
 
-  const younger = result.delta < 0
-  const same = result.delta === 0
+  if (!result) {
+    return <div className="bg-white border border-gray-200 rounded-xl p-5 animate-pulse h-48" />
+  }
+
+  const isOlder = result.delta > 0
+  const isYounger = result.delta < 0
+  const deltaAbs = Math.abs(result.delta)
 
   return (
-    <div className="bg-slate-800 border border-slate-700 rounded-xl p-5">
-      <div className="mb-4">
-        <h3 className="text-base font-semibold text-white">Financial Age Score</h3>
-        <p className="text-xs text-slate-400 mt-0.5">Based on all available data</p>
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Brain className="w-5 h-5 text-purple-600" />
+        <h3 className="text-base font-semibold text-gray-900">Financial Age Score</h3>
       </div>
 
-      <div className="flex items-center gap-8 mb-5">
-        <div className="text-center">
-          <div className="text-5xl font-bold text-white">{result.financialAge}</div>
-          <div className="text-xs text-slate-400 mt-1">Financial Age</div>
+      <div className="flex items-end gap-8 mb-4">
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Financial Age</p>
+          <p className={`text-5xl font-bold ${isOlder ? 'text-red-600' : isYounger ? 'text-emerald-600' : 'text-gray-900'}`}>
+            {result.financialAge}
+          </p>
         </div>
-        <div className="text-center">
-          <div className="text-3xl font-semibold text-slate-400">{result.realAge}</div>
-          <div className="text-xs text-slate-500 mt-1">Real Age</div>
-        </div>
-        <div className="flex-1">
-          {same ? (
-            <p className="text-sm text-slate-300">Your financial age matches your real age.</p>
-          ) : younger ? (
-            <p className="text-sm">
-              <span className="text-emerald-400 font-semibold">
-                You think {Math.abs(result.delta)} years younger 🟢
-              </span>
-              <br />
-              <span className="text-slate-400 text-xs">Your habits outpace your age</span>
-            </p>
-          ) : (
-            <p className="text-sm">
-              <span className="text-red-400 font-semibold">
-                You think {result.delta} years older 🔴
-              </span>
-              <br />
-              <span className="text-slate-400 text-xs">Your habits are ageing your finances</span>
-            </p>
-          )}
+        <div className="pb-1">
+          <p className="text-xs text-gray-400">Real Age</p>
+          <p className="text-2xl font-semibold text-gray-600">{result.realAge}</p>
         </div>
       </div>
+
+      {deltaAbs === 0 ? (
+        <p className="text-sm text-gray-500 mb-4">Your financial behaviour matches your real age. ✅</p>
+      ) : isOlder ? (
+        <p className="text-sm text-gray-500 mb-4">
+          You&apos;re thinking <span className="text-red-600 font-semibold">{deltaAbs} years older</span> than you are. 🔴
+        </p>
+      ) : (
+        <p className="text-sm text-gray-500 mb-4">
+          You&apos;re thinking <span className="text-emerald-600 font-semibold">{deltaAbs} years younger</span> than you are. 🟢
+        </p>
+      )}
 
       <button
-        onClick={() => setShowFactors(!showFactors)}
-        className="flex items-center gap-1 text-xs text-slate-400 hover:text-white transition"
+        onClick={() => setShowBreakdown(!showBreakdown)}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-900 transition mb-3"
       >
-        {showFactors ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        {showFactors ? 'Hide' : 'Show'} factor breakdown
+        {showBreakdown ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        {showBreakdown ? 'Hide' : 'Show'} factor breakdown
       </button>
 
-      {showFactors && (
-        <div className="mt-3 space-y-1.5">
-          {result.factors.map((f: FinancialAgeFactor, i: number) => (
-            <div key={i} className="flex items-start justify-between gap-3 text-xs">
-              <span className="text-slate-400 flex-1">{f.label}</span>
-              <span className="text-slate-500 flex-1">{f.detail}</span>
-              <span
-                className={`font-semibold w-12 text-right ${
-                  f.adjustment < 0 ? 'text-emerald-400' : f.adjustment > 0 ? 'text-red-400' : 'text-slate-400'
-                }`}
-              >
-                {f.adjustment > 0 ? `+${f.adjustment}` : f.adjustment} yr
+      {showBreakdown && (
+        <div className="space-y-2">
+          {result.factors.map((f, i) => (
+            <div key={i} className="flex items-start gap-3 bg-gray-50 rounded-lg px-3 py-2.5">
+              <span className={`text-sm font-bold w-12 flex-shrink-0 ${
+                f.adjustment < 0 ? 'text-emerald-600' : f.adjustment > 0 ? 'text-red-600' : 'text-gray-500'
+              }`}>
+                {f.adjustment > 0 ? `+${f.adjustment}y` : f.adjustment < 0 ? `${f.adjustment}y` : '±0'}
               </span>
+              <div>
+                <p className="text-xs font-medium text-gray-800">{f.label}</p>
+                <p className="text-xs text-gray-500">{f.reason}</p>
+              </div>
             </div>
           ))}
         </div>

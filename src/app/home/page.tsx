@@ -1,28 +1,52 @@
 'use client';
 
+import { Home } from 'lucide-react';
 import { SafeToSpendCard } from '@/components/home/SafeToSpendCard';
+import { BelowThresholdCard } from '@/components/home/BelowThresholdCard';
 import { DayOverDayCard } from '@/components/home/DayOverDayCard';
 import { BiggestSpendCard } from '@/components/home/BiggestSpendCard';
 import { DuplicateDetectorCard } from '@/components/home/DuplicateDetectorCard';
-import { Home } from 'lucide-react';
+import { SpendComparisons } from '@/components/home/SpendComparisons';
 
 export default function HomePage() {
+  const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
   return (
-    <div className="min-h-screen bg-slate-900 pb-24">
-      <div className="max-w-4xl mx-auto px-4 py-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="p-2 bg-blue-600/20 rounded-lg">
-            <Home className="w-5 h-5 text-blue-400" />
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
+        {/* Header — matches HUB/RADAR layout: icon block + h1 + subtitle stacked */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+              <Home className="w-6 h-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">BRIEF</h1>
+              <p className="text-sm text-gray-500">
+                Balances, Risk Indicators & Essential Financials
+              </p>
+            </div>
           </div>
-          <h1 className="text-xl font-bold text-white">Overview</h1>
+          <span className="text-sm text-gray-400">{today}</span>
         </div>
 
+        {/* Hero — SafeToSpend full width */}
+        <SafeToSpendCard />
+
+        {/* BelowThreshold — conditional (card renders nothing if no accounts below threshold) */}
+        <BelowThresholdCard />
+
+        {/* 2-col row: BiggestSpend | DayOverDay + DuplicateDetector */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SafeToSpendCard />
-          <DayOverDayCard />
           <BiggestSpendCard />
-          <DuplicateDetectorCard />
+          <div className="flex flex-col gap-4">
+            <DayOverDayCard />
+            <DuplicateDetectorCard />
+          </div>
         </div>
+
+        {/* 3-col SpendComparisons */}
+        <SpendComparisons />
       </div>
     </div>
   );

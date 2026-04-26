@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import type { Transaction } from '@/types/database';
 import { useMemo, useState } from 'react'
 import {
@@ -20,6 +21,7 @@ import {
 } from 'recharts'
 
 type ChartType = 'line' | 'area' | 'stack'
+type Granularity = '1D' | '1W' | '1M'
 
 interface IncomeVsExpenseProps {
   dateRange: { startDate: Date; endDate: Date }
@@ -34,11 +36,12 @@ function StackTooltip({ active, payload, label }: any) {
   return (
     <div
       style={{
-        backgroundColor: 'var(--background)',
-        border: '1px solid var(--border)',
+        backgroundColor: '#ffffff',
+        border: '1px solid #e5e7eb',
         padding: '12px',
         borderRadius: '8px',
         fontSize: 13,
+        color: '#111827',
       }}
     >
       <p className="font-semibold mb-2">{label}</p>
@@ -58,16 +61,17 @@ function StackTooltip({ active, payload, label }: any) {
 export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
   const db = useDb()
   const [chartType, setChartType] = useState<ChartType>('stack')
+  const [granularity, setGranularity] = useState<Granularity>('1M')
 
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   const transactions = useMemo(() => {
     if (!allTransactions) return []
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
 
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
@@ -75,42 +79,98 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
     })
   }, [allTransactions, dateRange])
 
-  const monthlyData = useMemo(() => {
+  const chartData = useMemo(() => {
     if (!transactions || !categories) return []
 
-    const monthMap = new Map<string, { income: number; expense: number }>()
+    const bucketMap = new Map<string, { income: number; expense: number }>()
 
-    const current = new Date(dateRange.startDate)
-    while (current <= dateRange.endDate) {
-      const key = current.toLocaleDateString('en-IN', { year: 'numeric', month: 'short' })
-      monthMap.set(key, { income: 0, expense: 0 })
-      current.setMonth(current.getMonth() + 1)
+    const getWeekMonday = (d: Date) => {
+      const date = new Date(d)
+      const day = date.getDay()
+      date.setDate(date.getDate() - (day === 0 ? 6 : day - 1))
+      date.setHours(0, 0, 0, 0)
+      return date
     }
 
+    if (granularity === '1D') {
+      const cur = new Date(dateRange.startDate); cur.setHours(0, 0, 0, 0)
+      const end = new Date(dateRange.endDate); end.setHours(23, 59, 59, 999)
+      while (cur <= end) {
+        bucketMap.set(cur.toISOString().slice(0, 10), { income: 0, expense: 0 })
+        cur.setDate(cur.getDate() + 1)
+      }
+      transactions.forEach((tx: Transaction) => {
+        const key = new Date(tx.date).toISOString().slice(0, 10)
+        const b = bucketMap.get(key)
+        if (!b) return
+        if (tx.transactionType === 'INCOME') b.income += tx.amount
+        else if (tx.transactionType === 'EXPENSE') b.expense += tx.amount
+      })
+      return Array.from(bucketMap.entries()).map(([iso, b]) => {
+        const d = new Date(iso)
+        return {
+          month: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+          Income: parseFloat(b.income.toFixed(2)),
+          Expense: parseFloat(b.expense.toFixed(2)),
+          Net: parseFloat((b.income - b.expense).toFixed(2)),
+        }
+      })
+    }
+
+    if (granularity === '1W') {
+      const cur = getWeekMonday(dateRange.startDate)
+      const end = new Date(dateRange.endDate)
+      while (cur <= end) {
+        bucketMap.set(cur.toISOString().slice(0, 10), { income: 0, expense: 0 })
+        cur.setDate(cur.getDate() + 7)
+      }
+      transactions.forEach((tx: Transaction) => {
+        const key = getWeekMonday(new Date(tx.date)).toISOString().slice(0, 10)
+        const b = bucketMap.get(key)
+        if (!b) return
+        if (tx.transactionType === 'INCOME') b.income += tx.amount
+        else if (tx.transactionType === 'EXPENSE') b.expense += tx.amount
+      })
+      return Array.from(bucketMap.entries()).map(([iso, b]) => {
+        const d = new Date(iso)
+        return {
+          month: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+          Income: parseFloat(b.income.toFixed(2)),
+          Expense: parseFloat(b.expense.toFixed(2)),
+          Net: parseFloat((b.income - b.expense).toFixed(2)),
+        }
+      })
+    }
+
+    // 1M
+    const cur = new Date(dateRange.startDate)
+    while (cur <= dateRange.endDate) {
+      const key = cur.toLocaleDateString('en-IN', { year: 'numeric', month: 'short' })
+      bucketMap.set(key, { income: 0, expense: 0 })
+      cur.setMonth(cur.getMonth() + 1)
+    }
     transactions.forEach((tx: Transaction) => {
       const date = new Date(tx.date)
       if (isNaN(date.getTime())) return
-      const monthKey = date.toLocaleDateString('en-IN', { year: 'numeric', month: 'short' })
-      if (monthMap.has(monthKey)) {
-        const data = monthMap.get(monthKey)!
-        if (tx.transactionType === 'INCOME') data.income += tx.amount
-        else if (tx.transactionType === 'EXPENSE') data.expense += tx.amount
-      }
+      const key = date.toLocaleDateString('en-IN', { year: 'numeric', month: 'short' })
+      const b = bucketMap.get(key)
+      if (!b) return
+      if (tx.transactionType === 'INCOME') b.income += tx.amount
+      else if (tx.transactionType === 'EXPENSE') b.expense += tx.amount
     })
-
-    return Array.from(monthMap.entries()).map(([month, data]) => ({
+    return Array.from(bucketMap.entries()).map(([month, b]) => ({
       month,
-      Income: parseFloat(data.income.toFixed(2)),
-      Expense: parseFloat(data.expense.toFixed(2)),
-      Net: parseFloat((data.income - data.expense).toFixed(2)),
+      Income: parseFloat(b.income.toFixed(2)),
+      Expense: parseFloat(b.expense.toFixed(2)),
+      Net: parseFloat((b.income - b.expense).toFixed(2)),
     }))
-  }, [transactions, categories, dateRange])
+  }, [transactions, categories, dateRange, granularity])
 
   if (!transactions || !categories) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
   }
 
-  if (monthlyData.length === 0) {
+  if (chartData.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         No transaction data for this period
@@ -118,30 +178,49 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
     )
   }
 
-  const totalIncome = monthlyData.reduce((sum, m) => sum + m.Income, 0)
-  const totalExpense = monthlyData.reduce((sum, m) => sum + m.Expense, 0)
+  const totalIncome = chartData.reduce((sum, m) => sum + m.Income, 0)
+  const totalExpense = chartData.reduce((sum, m) => sum + m.Expense, 0)
   const netIncome = totalIncome - totalExpense
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="mb-6">
-        {/* Title + chart type toggle */}
+        {/* Title + toggles */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h3 className="text-lg font-semibold">Income vs Expense</h3>
-          <div className="flex gap-1 bg-muted rounded-lg p-1">
-            {(['line', 'area', 'stack'] as const).map(ct => (
-              <button
-                key={ct}
-                onClick={() => setChartType(ct)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                  chartType === ct
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {ct === 'line' ? 'Line' : ct === 'area' ? 'Area' : 'Stack'}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            {/* Granularity toggle */}
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {(['1D', '1W', '1M'] as const).map(g => (
+                <button
+                  key={g}
+                  onClick={() => setGranularity(g)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    granularity === g
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+            {/* Chart type toggle */}
+            <div className="flex gap-1 bg-muted rounded-lg p-1">
+              {(['line', 'area', 'stack'] as const).map(ct => (
+                <button
+                  key={ct}
+                  onClick={() => setChartType(ct)}
+                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                    chartType === ct
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {ct === 'line' ? 'Line' : ct === 'area' ? 'Area' : 'Stack'}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -173,7 +252,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
       {/* Line chart */}
       {chartType === 'line' && (
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={monthlyData}>
+          <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} angle={-45} textAnchor="end" height={80} />
             <YAxis tick={{ fontSize: 12 }} />
@@ -217,7 +296,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
       {/* Area chart: income and expense as filled areas — overlap shows surplus/deficit */}
       {chartType === 'area' && (
         <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={monthlyData}>
+          <AreaChart data={chartData}>
             <defs>
               <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10B981" stopOpacity={0.35} />
@@ -247,7 +326,7 @@ export function IncomeVsExpense({ dateRange }: IncomeVsExpenseProps) {
       {/* Stack chart */}
       {chartType === 'stack' && (
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={monthlyData}>
+          <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="month" tick={{ fontSize: 12 }} angle={-45} textAnchor="end" height={80} />
             <YAxis tick={{ fontSize: 12 }} />

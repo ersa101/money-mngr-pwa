@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
 import { Transaction } from '@/types/database';
+import { sortByName } from '@/lib/sortUtils';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -36,7 +38,7 @@ export function BulkEditModal({
 }: BulkEditModalProps) {
   const db = useDb();
   const accounts = useLiveQuery(() => db?.accounts.toArray() ?? [], [db]) || [];
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db]) || [];
+  const categories = useCleanCategories() || [];
 
   const [categoryId, setCategoryId] = useState<string>('__keep__');
   const [fromAccountId, setFromAccountId] = useState<string>('__keep__');
@@ -77,7 +79,7 @@ export function BulkEditModal({
         .anyOf(ids)
         .modify({
           ...updates,
-          updatedAt: new Date().toISOString(),
+          updatedAt: Date.now(),
         });
 
       toast.success(`Updated ${transactions.length} transactions`);
@@ -92,7 +94,7 @@ export function BulkEditModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-slate-900 border-slate-700 text-white">
+      <DialogContent className="bg-white border-gray-200 text-gray-900">
         <DialogHeader>
           <DialogTitle>
             Bulk Edit ({transactions.length} transactions)
@@ -101,7 +103,7 @@ export function BulkEditModal({
 
         <div className="space-y-4 py-4">
           {/* Summary */}
-          <div className="bg-slate-800 rounded-lg p-3 text-sm text-slate-400">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-500">
             <div>Expenses: {expenseTransactions.length}</div>
             <div>Income: {incomeTransactions.length}</div>
             <div>Transfers: {transactions.length - expenseTransactions.length - incomeTransactions.length}</div>
@@ -109,15 +111,15 @@ export function BulkEditModal({
 
           {/* Change Category */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Change Category to
             </label>
             <Select value={categoryId} onValueChange={setCategoryId}>
-              <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
+              <SelectTrigger className="bg-white border-gray-300 text-gray-900">
                 <SelectValue placeholder="Keep original" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="__keep__" className="text-slate-400">
+              <SelectContent className="bg-white border-gray-200">
+                <SelectItem value="__keep__" className="text-gray-500">
                   Keep original (no change)
                 </SelectItem>
                 {categories
@@ -126,10 +128,10 @@ export function BulkEditModal({
                     <SelectItem
                       key={category.id}
                       value={category.id!.toString()}
-                      className="text-white"
+                      className="text-gray-900"
                     >
                       {category.icon} {category.name}
-                      <span className="text-slate-500 ml-2">
+                      <span className="text-gray-400 ml-2">
                         ({category.type})
                       </span>
                     </SelectItem>
@@ -140,22 +142,22 @@ export function BulkEditModal({
 
           {/* Change Account */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2">
+            <label className="block text-sm text-gray-600 mb-2">
               Change Account to
             </label>
             <Select value={fromAccountId} onValueChange={setFromAccountId}>
-              <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
+              <SelectTrigger className="bg-white border-gray-300 text-gray-900">
                 <SelectValue placeholder="Keep original" />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="__keep__" className="text-slate-400">
+              <SelectContent className="bg-white border-gray-200">
+                <SelectItem value="__keep__" className="text-gray-500">
                   Keep original (no change)
                 </SelectItem>
-                {accounts.map((account) => (
+                {sortByName(accounts).map((account) => (
                   <SelectItem
                     key={account.id}
                     value={account.id!.toString()}
-                    className="text-white"
+                    className="text-gray-900"
                   >
                     {account.name}
                   </SelectItem>
@@ -165,7 +167,7 @@ export function BulkEditModal({
           </div>
 
           {/* Warning */}
-          <div className="flex items-start gap-2 text-amber-400 text-sm bg-amber-500/10 rounded-lg p-3">
+          <div className="flex items-start gap-2 text-amber-700 text-sm bg-amber-50 border border-amber-200 rounded-lg p-3">
             <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <span>
               Note: Changing accounts will NOT recalculate balances. 
@@ -178,7 +180,7 @@ export function BulkEditModal({
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
+              className="flex-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
             >
               Cancel
             </Button>

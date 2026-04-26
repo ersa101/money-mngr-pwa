@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDb } from '@/contexts/DbContext';
+import { useCleanCategories } from '@/hooks/useCleanCategories';
 import type { Transaction, Category } from '@/types/database';
 import { useState, useMemo } from 'react'
 import {
@@ -31,6 +32,16 @@ const CATEGORY_COLORS = [
   '#EC4899',
 ]
 
+type Granularity = '1D' | '1W' | '1M'
+
+const getWeekMonday = (d: Date) => {
+  const date = new Date(d)
+  const day = date.getDay()
+  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1))
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
 export function SubCategoryTrend({
   dateRange,
   selectedMainCategory,
@@ -38,24 +49,25 @@ export function SubCategoryTrend({
   const [selectedSubCategories, setSelectedSubCategories] = useState<Set<number>>(
     new Set()
   )
+  const [granularity, setGranularity] = useState<Granularity>('1M')
   const db = useDb()
 
   // Fetch all transactions and filter by date range
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
 
   // Fetch categories
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   // Build category lookup map
   const categoryMap = useMemo(() => {
     if (!categories) return new Map<number, Category>()
-    return new Map(categories.map(c => [c.id!, c]))
+    return new Map(categories.filter(Boolean).map(c => [c.id!, c]))
   }, [categories])
 
   // Get subcategories (categories with parentId)
   const subCategoriesList = useMemo(() => {
     if (!categories) return []
-    return categories.filter(c => c.parentId !== undefined && c.parentId !== null)
+    return categories.filter(Boolean).filter(c => c.parentId !== undefined && c.parentId !== null)
   }, [categories])
 
   // Filter transactions by date range
@@ -64,7 +76,7 @@ export function SubCategoryTrend({
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
 
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const txDate = new Date(tx.date)
       const txTs = txDate.getTime()
       if (isNaN(txTs)) return false
@@ -72,16 +84,23 @@ export function SubCategoryTrend({
     })
   }, [allTransactions, dateRange])
 
-  // Get months in range
-  const months = useMemo(() => {
-    const m = []
-    const current = new Date(dateRange.startDate)
-    while (current <= dateRange.endDate) {
-      m.push(new Date(current))
-      current.setMonth(current.getMonth() + 1)
+  // Get buckets in range based on granularity
+  const buckets = useMemo(() => {
+    const result: Date[] = []
+    if (granularity === '1D') {
+      const cur = new Date(dateRange.startDate); cur.setHours(0, 0, 0, 0)
+      const end = new Date(dateRange.endDate)
+      while (cur <= end) { result.push(new Date(cur)); cur.setDate(cur.getDate() + 1) }
+    } else if (granularity === '1W') {
+      const cur = getWeekMonday(dateRange.startDate)
+      const end = new Date(dateRange.endDate)
+      while (cur <= end) { result.push(new Date(cur)); cur.setDate(cur.getDate() + 7) }
+    } else {
+      const cur = new Date(dateRange.startDate)
+      while (cur <= dateRange.endDate) { result.push(new Date(cur)); cur.setMonth(cur.getMonth() + 1) }
     }
-    return m
-  }, [dateRange])
+    return result
+  }, [dateRange, granularity])
 
   // Get unique sub-categories from transactions that have subCategoryId
   const subCategoriesWithData = useMemo(() => {
@@ -100,54 +119,51 @@ export function SubCategoryTrend({
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [transactions, categories, subCategoriesList])
 
-  // Calculate monthly trend data
+  // Calculate trend data bucketed by granularity
   const trendData = useMemo(() => {
     if (!transactions || !categories) return []
 
-    const data: any[] = months.map((month) => ({
-      month: month.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
-      monthDate: month,
+    const bucketIso = (d: Date) => {
+      if (granularity === '1D') return d.toISOString().slice(0, 10)
+      if (granularity === '1W') return getWeekMonday(d).toISOString().slice(0, 10)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    }
+
+    const bucketLabel = (d: Date) => {
+      if (granularity === '1D') return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+      if (granularity === '1W') return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+      return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+    }
+
+    const data: any[] = buckets.map((b) => ({
+      month: bucketLabel(b),
+      bucketIso: bucketIso(b),
     }))
 
-    // For each sub-category, calculate monthly values
+    // Pre-build a map of bucketIso -> row index
+    const isoToIdx = new Map(data.map((d, i) => [d.bucketIso, i]))
+
     subCategoriesWithData.forEach((subCat) => {
-      const monthlyValues = new Map<string, number>()
+      // Init all rows to 0
+      data.forEach(d => { d[`subcat-${subCat.id}`] = 0 })
 
-      data.forEach((d) => {
-        const month = d.monthDate
-        const monthKey = month.toLocaleDateString('en-IN', {
-          month: 'short',
-          year: '2-digit',
-        })
-
-        const amount = transactions
-          .filter((tx: Transaction) => {
-            const date = new Date(tx.date)
-            if (isNaN(date.getTime())) return false
-            return (
-              tx.subCategoryId === subCat.id &&
-              date.getMonth() === month.getMonth() &&
-              date.getFullYear() === month.getFullYear()
+      transactions
+        .filter((tx: Transaction) => tx.subCategoryId === subCat.id)
+        .forEach((tx: Transaction) => {
+          const date = new Date(tx.date)
+          if (isNaN(date.getTime())) return
+          const iso = bucketIso(date)
+          const idx = isoToIdx.get(iso)
+          if (idx !== undefined) {
+            data[idx][`subcat-${subCat.id}`] = parseFloat(
+              (data[idx][`subcat-${subCat.id}`] + tx.amount).toFixed(2)
             )
-          })
-          .reduce((sum: number, tx: Transaction) => sum + tx.amount, 0)
-
-        monthlyValues.set(monthKey, amount)
-      })
-
-      // Add to data using category ID as key
-      data.forEach((d) => {
-        const monthKey = d.monthDate.toLocaleDateString('en-IN', {
-          month: 'short',
-          year: '2-digit',
+          }
         })
-        const value = monthlyValues.get(monthKey) || 0
-        d[`subcat-${subCat.id}`] = parseFloat(value.toFixed(2))
-      })
     })
 
     return data
-  }, [transactions, categories, months, subCategoriesWithData])
+  }, [transactions, categories, buckets, subCategoriesWithData, granularity])
 
   // Calculate average line
   const averageLine = useMemo(() => {
@@ -163,12 +179,16 @@ export function SubCategoryTrend({
     const uniqueMonths = new Set(
       selectedTxs.map((tx: Transaction) => {
         const date = new Date(tx.date)
-        return `${date.getFullYear()}-${date.getMonth()}`
+        return granularity === '1D'
+          ? date.toISOString().slice(0, 10)
+          : granularity === '1W'
+            ? getWeekMonday(date).toISOString().slice(0, 10)
+            : `${date.getFullYear()}-${date.getMonth()}`
       })
     ).size
 
     return total / Math.max(uniqueMonths, 1)
-  }, [transactions, selectedSubCategories])
+  }, [transactions, selectedSubCategories, granularity])
 
   if (!transactions || !categories) {
     return <div className="text-center py-8 text-muted-foreground">Loading...</div>
@@ -176,8 +196,8 @@ export function SubCategoryTrend({
 
   if (subCategoriesWithData.length === 0) {
     return (
-      <div className="bg-card rounded-lg border border-border p-6">
-        <h3 className="text-lg font-semibold mb-4">Sub-Category Trends</h3>
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold mb-4 ">Sub-Category Trends</h3>
         <div className="text-center py-8 text-muted-foreground">
           No sub-categories available in this period
         </div>
@@ -186,9 +206,26 @@ export function SubCategoryTrend({
   }
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-4">Sub-Category Trends</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Sub-Category Trends</h3>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {(['1D', '1W', '1M'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGranularity(g)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
+                  granularity === g
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Sub-Category Selector — searchable multi-select */}
         <SubCategorySelector

@@ -1,90 +1,139 @@
-/**
- * Financial Age Score computation logic (Feature 19).
- * Rule-based, no AI. Runs synchronously on provided metrics.
- */
+// Financial Age scoring logic — Feature 19
+// All 10 adjustment factors as per Phase 2 spec
 
 export interface FinancialAgeInput {
-  realAge: number;
-  savingsRate: number;           // 0–100 (percentage of income saved)
-  expenseGrowthRate: number;     // annualised % growth rate (from lifestyle inflation calc)
-  incomeGrowthRate: number;      // annualised % growth rate
-  investmentRatio: number;       // investments as % of income
-  debtAccountCount: number;      // accounts with positive outstanding balance flagged as liability
-  safeToSpendMonths: number;     // how many months of expenses covered by safe-to-spend buffer
-  monthlySavingsVarianceCoeff: number; // CV = stddev/mean of monthly savings (0–1)
+  realAge: number
+  // Monthly income and expense arrays (chronological, same length or not)
+  monthlyIncome: number[]    // ₹ per month, recent 12 months
+  monthlyExpense: number[]   // ₹ per month, recent 12 months
+  investmentAmount: number   // total investment spend last 12 months
+  totalIncome: number        // total income last 12 months
+  debtAccountCount: number   // number of loan/credit accounts with non-zero balance
+  safeToSpend: number        // current safe-to-spend balance (from threshold system)
+  avgMonthlyExpense: number  // average monthly expense last 12 months
+  // For lifestyle inflation: pass full history monthly arrays
+  allMonthlyIncome: number[]
+  allMonthlyExpense: number[]
 }
 
-export interface FinancialAgeFactor {
-  label: string;
-  adjustment: number; // negative = younger, positive = older
-  detail: string;
+export interface FactorResult {
+  label: string
+  adjustment: number // negative = younger, positive = older
+  reason: string
 }
 
 export interface FinancialAgeResult {
-  realAge: number;
-  financialAge: number;
-  delta: number; // financialAge - realAge
-  factors: FinancialAgeFactor[];
+  realAge: number
+  financialAge: number
+  delta: number // financialAge - realAge (positive = older, negative = younger)
+  factors: FactorResult[]
+}
+
+function savingsRate(income: number[], expense: number[]): number {
+  const totalIncome = income.reduce((a, b) => a + b, 0)
+  const totalExpense = expense.reduce((a, b) => a + b, 0)
+  if (totalIncome === 0) return 0
+  return ((totalIncome - totalExpense) / totalIncome) * 100
+}
+
+function linearGrowthRate(values: number[]): number {
+  // Simple linear regression slope as % of mean
+  if (values.length < 2) return 0
+  const n = values.length
+  const mean = values.reduce((a, b) => a + b, 0) / n
+  if (mean === 0) return 0
+
+  let sumXY = 0
+  let sumX2 = 0
+  for (let i = 0; i < n; i++) {
+    sumXY += i * values[i]
+    sumX2 += i * i
+  }
+  const meanX = (n - 1) / 2
+  const meanY = mean
+  const slope = (sumXY - n * meanX * meanY) / (sumX2 - n * meanX * meanX)
+  // Annualise: slope per month × 12, as % of mean
+  return ((slope * 12) / mean) * 100
+}
+
+function coefficientOfVariation(values: number[]): number {
+  if (values.length < 2) return 0
+  const mean = values.reduce((a, b) => a + b, 0) / values.length
+  if (mean === 0) return 0
+  const variance = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / values.length
+  return (Math.sqrt(variance) / mean) * 100
 }
 
 export function computeFinancialAge(input: FinancialAgeInput): FinancialAgeResult {
-  const factors: FinancialAgeFactor[] = [];
-  let adj = 0;
+  const factors: FactorResult[] = []
+  let adjustment = 0
 
-  // Savings rate
-  if (input.savingsRate > 20) {
-    factors.push({ label: 'High savings rate (>20%)', adjustment: -3, detail: `You save ${input.savingsRate.toFixed(1)}% of income` });
-    adj -= 3;
-  } else if (input.savingsRate >= 10) {
-    factors.push({ label: 'Moderate savings rate (10–20%)', adjustment: -1, detail: `You save ${input.savingsRate.toFixed(1)}% of income` });
-    adj -= 1;
+  // Factor 1: Savings rate
+  const sr = savingsRate(input.monthlyIncome, input.monthlyExpense)
+  if (sr > 20) {
+    factors.push({ label: 'Savings rate', adjustment: -3, reason: `${sr.toFixed(1)}% savings rate (excellent, >20%)` })
+    adjustment -= 3
+  } else if (sr >= 10) {
+    factors.push({ label: 'Savings rate', adjustment: -1, reason: `${sr.toFixed(1)}% savings rate (good, 10–20%)` })
+    adjustment -= 1
   } else {
-    factors.push({ label: 'Low savings rate (<10%)', adjustment: +3, detail: `You save only ${input.savingsRate.toFixed(1)}% of income` });
-    adj += 3;
+    factors.push({ label: 'Savings rate', adjustment: +3, reason: `${sr.toFixed(1)}% savings rate (low, <10%)` })
+    adjustment += 3
   }
 
-  // Lifestyle inflation
-  if (input.expenseGrowthRate > input.incomeGrowthRate) {
-    factors.push({ label: 'Lifestyle inflation detected', adjustment: +2, detail: `Expenses growing ${input.expenseGrowthRate.toFixed(1)}%/yr vs income ${input.incomeGrowthRate.toFixed(1)}%/yr` });
-    adj += 2;
+  // Factor 2: Lifestyle inflation (expense growth vs income growth over full history)
+  const expenseGrowth = linearGrowthRate(input.allMonthlyExpense)
+  const incomeGrowth = linearGrowthRate(input.allMonthlyIncome)
+  if (expenseGrowth > incomeGrowth) {
+    factors.push({ label: 'Lifestyle inflation', adjustment: +2, reason: `Expenses growing ${expenseGrowth.toFixed(1)}%/yr vs income ${incomeGrowth.toFixed(1)}%/yr` })
+    adjustment += 2
   } else {
-    factors.push({ label: 'Income outpacing expenses', adjustment: -2, detail: `Income growing ${input.incomeGrowthRate.toFixed(1)}%/yr vs expenses ${input.expenseGrowthRate.toFixed(1)}%/yr` });
-    adj -= 2;
+    factors.push({ label: 'Income growth', adjustment: -2, reason: `Income growing ${incomeGrowth.toFixed(1)}%/yr vs expenses ${expenseGrowth.toFixed(1)}%/yr` })
+    adjustment -= 2
   }
 
-  // Investment ratio
-  if (input.investmentRatio > 15) {
-    factors.push({ label: 'Strong investment ratio (>15%)', adjustment: -2, detail: `${input.investmentRatio.toFixed(1)}% of income invested` });
-    adj -= 2;
-  } else if (input.investmentRatio < 5) {
-    factors.push({ label: 'Low investment ratio (<5%)', adjustment: +2, detail: `Only ${input.investmentRatio.toFixed(1)}% of income invested` });
-    adj += 2;
+  // Factor 3: Investment ratio
+  const investRatio = input.totalIncome > 0
+    ? (input.investmentAmount / input.totalIncome) * 100
+    : 0
+  if (investRatio > 15) {
+    factors.push({ label: 'Investment ratio', adjustment: -2, reason: `${investRatio.toFixed(1)}% of income invested (>15%)` })
+    adjustment -= 2
+  } else if (investRatio < 5) {
+    factors.push({ label: 'Investment ratio', adjustment: +2, reason: `${investRatio.toFixed(1)}% of income invested (<5%)` })
+    adjustment += 2
+  } else {
+    factors.push({ label: 'Investment ratio', adjustment: 0, reason: `${investRatio.toFixed(1)}% of income invested (moderate)` })
   }
 
-  // Debt accounts
+  // Factor 4: Debt/loan accounts
   if (input.debtAccountCount > 0) {
-    factors.push({ label: `${input.debtAccountCount} debt/loan account(s)`, adjustment: +input.debtAccountCount, detail: `+1 year per active debt account` });
-    adj += input.debtAccountCount;
+    const adj = input.debtAccountCount
+    factors.push({ label: 'Debt accounts', adjustment: +adj, reason: `${input.debtAccountCount} loan/credit account(s) with balance` })
+    adjustment += adj
   }
 
-  // Emergency buffer
-  if (input.safeToSpendMonths >= 3) {
-    factors.push({ label: 'Healthy emergency buffer (≥3 months)', adjustment: -2, detail: `${input.safeToSpendMonths.toFixed(1)} months of expenses buffered` });
-    adj -= 2;
+  // Factor 5: Emergency buffer (safe-to-spend > 3 months expenses)
+  const threeMonthsExpense = input.avgMonthlyExpense * 3
+  if (input.safeToSpend >= threeMonthsExpense && threeMonthsExpense > 0) {
+    factors.push({ label: 'Emergency buffer', adjustment: -2, reason: `Safe-to-spend covers ${(input.safeToSpend / input.avgMonthlyExpense).toFixed(1)} months of expenses` })
+    adjustment -= 2
   }
 
-  // Savings consistency
-  if (input.monthlySavingsVarianceCoeff < 0.2) {
-    factors.push({ label: 'Consistent savings habit (<20% variance)', adjustment: -1, detail: 'Low month-to-month savings variance' });
-    adj -= 1;
+  // Factor 6: Consistency (savings variance)
+  const monthlySavings = input.monthlyIncome.map((inc, i) => inc - (input.monthlyExpense[i] ?? 0))
+  const cv = coefficientOfVariation(monthlySavings)
+  if (cv < 20) {
+    factors.push({ label: 'Savings consistency', adjustment: -1, reason: `Monthly savings vary by ${cv.toFixed(1)}% (consistent, <20%)` })
+    adjustment -= 1
   }
 
-  const financialAge = Math.max(18, Math.round(input.realAge + adj));
+  const financialAge = Math.max(18, input.realAge + adjustment)
 
   return {
     realAge: input.realAge,
     financialAge,
     delta: financialAge - input.realAge,
     factors,
-  };
+  }
 }

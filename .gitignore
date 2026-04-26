@@ -82,6 +82,16 @@ Screenshot_*.jpg
 
 # Docs, prompts, media — not part of PWA source
 *.md
+# Tracked session-brain docs (force-added historically) — keep visible to git
+!CLAUDE.md
+!DECISIONS.md
+!SESSION_LOG.md
+!BUGS.md
+!USER_LEARNINGS.md
+!CHEATSHEET.md
+# Phase plan docs (V2_P*_CLAUDE_CODE_PROMPT.md, V2_P*_PLAN.md)
+!V2_P*_CLAUDE_CODE_PROMPT.md
+!V2_P*_PLAN.md
 *.pdf
 *.docx
 *.doc

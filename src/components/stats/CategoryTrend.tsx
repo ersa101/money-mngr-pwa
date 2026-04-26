@@ -2,6 +2,7 @@
 
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useDb } from '@/contexts/DbContext'
+import { useCleanCategories } from '@/hooks/useCleanCategories'
 import type { Transaction } from '@/types/database'
 import { useState, useMemo, useEffect } from 'react'
 import {
@@ -68,7 +69,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
   const [granularity, setGranularity] = useState<Granularity>('1M')
 
   const allTransactions = useLiveQuery(() => db?.transactions.toArray() ?? [], [db])
-  const categories = useLiveQuery(() => db?.categories.toArray() ?? [], [db])
+  const categories = useCleanCategories()
 
   const daysDiff = useMemo(() => {
     return Math.ceil(
@@ -102,7 +103,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
     if (!allTransactions) return []
     const startTs = dateRange.startDate.getTime()
     const endTs = dateRange.endDate.getTime()
-    return allTransactions.filter((tx: Transaction) => {
+    return allTransactions.filter(Boolean).filter((tx: Transaction) => {
       const ts = new Date(tx.date).getTime()
       if (isNaN(ts)) return false
       return ts >= startTs && ts <= endTs
@@ -263,7 +264,7 @@ export function CategoryTrend({ dateRange, categoryClick }: CategoryTrendProps) 
   }
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>

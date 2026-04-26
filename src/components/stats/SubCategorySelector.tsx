@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronDown, Search, X, ChevronRight } from 'lucide-react';
 import type { Category } from '@/types/database';
+import { sortByName } from '@/lib/sortUtils';
 
 interface SubCategorySelectorProps {
   subCategories: Category[];
@@ -31,7 +32,7 @@ export function SubCategorySelector({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Build grouped structure
+  // Build grouped structure (A-Z sorted within each group — D046)
   const grouped = useMemo(() => {
     const filtered = search.trim()
       ? subCategories.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
@@ -43,6 +44,11 @@ export function SubCategorySelector({
       if (!parentMap.has(pid)) parentMap.set(pid, []);
       parentMap.get(pid)!.push(s);
     });
+
+    // Sort each group A-Z
+    for (const [pid, group] of parentMap.entries()) {
+      parentMap.set(pid, sortByName(group));
+    }
 
     return parentMap;
   }, [subCategories, search]);

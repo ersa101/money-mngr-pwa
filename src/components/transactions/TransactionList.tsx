@@ -79,49 +79,49 @@ export function TransactionList({
       {/* BULK ACTIONS BAR */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       {isSelectionMode ? (
-        <div className="sticky top-0 z-10 bg-slate-800 rounded-lg p-3 flex items-center justify-between border border-slate-700">
+        <div className="sticky top-0 z-10 bg-white rounded-lg p-3 flex items-center justify-between border border-gray-200">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
               onClick={exitSelectionMode}
-              className="text-slate-400"
+              className="text-gray-400"
             >
               <X className="w-4 h-4" />
             </Button>
-            
-            <span className="text-white font-medium">
+
+            <span className="text-gray-900 font-medium">
               {selectedIds.size} selected
             </span>
-            
+
             <Button
               variant="ghost"
               size="sm"
               onClick={selectedIds.size === transactions.length ? deselectAll : selectAll}
-              className="text-slate-300"
+              className="text-gray-600"
             >
               {selectedIds.size === transactions.length ? 'Deselect All' : 'Select All'}
             </Button>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowBulkEdit(true)}
               disabled={selectedIds.size === 0}
-              className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600"
+              className="border-gray-300 text-gray-700 hover:bg-gray-50"
             >
               <Pencil className="w-4 h-4 mr-1" />
               Edit
             </Button>
-            
+
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowBulkDelete(true)}
               disabled={selectedIds.size === 0}
-              className="border-red-500/50 bg-slate-700 text-red-400 hover:bg-red-500/20"
+              className="border-red-200 text-red-600 hover:bg-red-50"
             >
               <Trash2 className="w-4 h-4 mr-1" />
               Delete
@@ -152,12 +152,12 @@ export function TransactionList({
             {isSelectionMode && (
               <button
                 onClick={() => toggleSelection(transaction.id!)}
-                className="mt-4 p-1 hover:bg-slate-700 rounded"
+                className="mt-4 p-1 hover:bg-gray-100 rounded"
               >
                 {selectedIds.has(transaction.id!) ? (
-                  <CheckSquare className="w-5 h-5 text-purple-400" />
+                  <CheckSquare className="w-5 h-5 text-blue-500" />
                 ) : (
-                  <Square className="w-5 h-5 text-slate-500" />
+                  <Square className="w-5 h-5 text-gray-400" />
                 )}
               </button>
             )}
